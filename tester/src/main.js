@@ -619,7 +619,15 @@
     sizeAnimal(spr) {
       const a = spr.animal;
       const h = (a.ageDays < 120 ? 20 : a.species === 'cat' ? 28 : 34) * (a.ageDays < 120 ? 1 : D.BODY[a.breed] || 1);   // 품종 몸 크기(치와와와 골든이 같은 크기로 보이지 않게)
-      if (POSE && POSE.has(a.breed)) {
+      const st0 = POSE ? POSE.stateOf(a) : null;
+      if (POSE && SIM.isShaggy(a) && (!st0 || st0 === 'fat') && POSE.has(`${a.breed}-shaggy`)) {
+        // 털 수북(v0.12): 수북 포즈 띠. 상태 그림(아픔·임신 등)이 있으면 그쪽이 먼저
+        const sk = `${a.breed}-shaggy`;
+        if (spr.texture.key !== `pose-${sk}`) spr.setTexture(`pose-${sk}`);
+        spr.setFrame(POSE.frame(sk, POSE.shaggyName(this.poseName(spr))));
+        spr.setScale(h / POSE.sheet(sk).ref);
+        spr.bodyH = h;
+      } else if (POSE && POSE.has(a.breed)) {
         // 포즈 띠(v0.10): 걷기 1번 높이가 h가 되도록 시트 전체를 같은 배율로 그린다(누운 자세는 낮게 보인다)
         const key = `pose-${a.breed}`;
         if (spr.texture.key !== key) spr.setTexture(key);
@@ -677,6 +685,8 @@
       if (!spr.moving && spr.idlePose === 'sleep') return 'zz';
       if (spr.cheer > now || spr.act === 'play' || spr.act === 'fetch') return 'note';
       if (a.days < 3) return 'question';
+      if (SIM.isFresh(a) && Math.random() < 0.6) return 'sparkle';   // 갓 미용한 아이
+      if (SIM.isShaggy(a) && Math.random() < 0.3) return 'dots';
       if (SIM.isReady(a) && Math.random() < 0.5) return 'sparkle';
       if (a.trust >= 70 && Math.random() < 0.5) return 'heart';
       return null;

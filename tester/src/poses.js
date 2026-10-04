@@ -69,17 +69,24 @@
     if (st === 'sick') return ['cu2', 'sick', '몸이 안 좋아 누워 있어요'];
     if (st === 'pregnant') return ['cu2', 'preg', '출산을 기다리고 있어요'];
     if (st === 'closed') return (a.trust || 0) < 20 ? ['cu1', 'tremble', '겁이 나서 떨고 있어요'] : ['cu1', 'wary', '아직 경계하고 있어요'];
+    // 미용(v0.12): 미용한 날·다음 날은 미용 과정, 그 뒤 며칠은 뽀송한 기쁨, 털이 자라면 수북
+    const SIM = G.SIM, day = G.UI && G.UI.today ? G.UI.today() : null;
+    if (POSE.has(`${a.breed}.gr`)) {
+      if (a.groomedDay != null && day != null && day - a.groomedDay <= 1) return ['gr', 'groom', '미용 중이에요 · 빗질, 목욕, 드라이까지'];
+      if (SIM && SIM.isShaggy(a)) return ['gr', 'shaggy', '털이 수북해요. 미용이 필요해요'];
+    }
+    if (SIM && SIM.isFresh && SIM.isFresh(a)) return ['cu1', 'happy', '갓 미용해서 뽀송해요'];
     return (a.trust || 0) >= 60 ? ['cu1', 'happy', '기분이 좋아요'] : ['cu1', 'calm', '편안하게 쉬고 있어요'];
   };
   POSE.hasCloseup = (breed) => POSE.has(`${breed}.cu1`) && POSE.has(`${breed}.cu2`);
   // getA: 지금 아이 객체를 돌려주는 함수(없어지면 멈춘다). onLabel: 상태 문구가 바뀔 때 부른다
   POSE.closeup = (breed, getA, onLabel, scale = 1.7) => {
-    const k1 = `${breed}.cu1`, k2 = `${breed}.cu2`, s1 = S[k1], s2 = S[k2];
+    const k1 = `${breed}.cu1`, k2 = `${breed}.cu2`, k3 = `${breed}.gr`, s1 = S[k1], s2 = S[k2], s3 = POSE.has(k3) ? S[k3] : s1;
     const c = document.createElement('canvas');
-    c.width = Math.max(s1.w, s2.w) * scale + 4; c.height = Math.max(s1.h, s2.h) * scale + 2;
+    c.width = Math.max(s1.w, s2.w, s3.w) * scale + 4; c.height = Math.max(s1.h, s2.h, s3.h) * scale + 2;
     c.className = 'pose-portrait closeup';
     const load = (k) => { let img = imgs[k]; if (!img) { img = imgs[k] = new Image(); img.src = G.SPR.path(`pose-${k}`); } return img; };
-    const im = { cu1: load(k1), cu2: load(k2) };
+    const im = { cu1: load(k1), cu2: load(k2), gr: POSE.has(k3) ? load(k3) : null };
     const g = c.getContext('2d');
     let i = 0, label = null, born = Date.now();
     const draw = () => {
@@ -87,7 +94,7 @@
       if (!a || (!c.isConnected && Date.now() - born > 2000)) return false;
       const [sheet, row, text] = POSE.cuState(a);
       if (text !== label) { label = text; if (onLabel) onLabel(text); }
-      const sk = sheet === 'cu1' ? k1 : k2, sh = S[sk], img = im[sheet];
+      const sk = { cu1: k1, cu2: k2, gr: k3 }[sheet], sh = S[sk], img = im[sheet];
       if (!img.complete || !img.naturalWidth) return true;
       const f = POSE.frame(sk, `${row}-${i % 4}`);
       // 떨 때는 1~2px씩 흔들고, 경계할 때는 아주 조금만 흔든다
@@ -111,11 +118,20 @@
       if (!draw()) return;
       i++;
       const a = getA(), row = a ? POSE.cuState(a)[1] : '';
-      setTimeout(tick, row === 'tremble' ? 110 : row === 'sick' || row === 'preg' || row === 'calm' ? 420 : 240);
+      setTimeout(tick, row === 'tremble' ? 110 : row === 'groom' ? 650 : row === 'sick' || row === 'preg' || row === 'calm' ? 420 : 240);
     };
-    for (const img of Object.values(im)) if (!img.complete) img.addEventListener('load', () => draw(), { once: true });
+    for (const img of Object.values(im)) if (img && !img.complete) img.addEventListener('load', () => draw(), { once: true });
     tick();
     return c;
+  };
+
+  // 필드 '털 수북' 띠(<품종>-shaggy)의 포즈 이름: 쉬는 습성은 가까운 수북 포즈로 바꾼다
+  POSE.shaggyName = (name) => {
+    if (name.startsWith('walk-') || name.startsWith('run-')) return `shaggy-walk-${name.endsWith('-1') ? 1 : name.endsWith('-2') ? 2 : name.endsWith('-3') ? 3 : 0}`;
+    if (name === 'sit' || name === 'stretch') return 'shaggy-sit';
+    if (name === 'lie' || name === 'lie-side' || name === 'belly') return 'shaggy-lie';
+    if (name === 'sleep') return 'shaggy-sleep';
+    return 'shaggy-wag';
   };
 
   G.POSE = POSE;

@@ -69,6 +69,7 @@
       $('ticker').classList.remove('flash'); void $('ticker').offsetWidth; $('ticker').classList.add('flash');
     }
   };
+  UI.today = () => (state ? state.day : null);   // 아이 카드 클로즈업이 미용한 날을 비교할 때 쓴다
   UI.setSpeed = (v) => {
     for (const b of document.querySelectorAll('[data-speed]')) b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === v));
   };
@@ -536,6 +537,8 @@ ${flags.join(' · ') || '건강한 편이에요'}
     if (SIM.isReady(a)) badges.push('<span class="badge ready">입양 준비 완료</span>');
     if (a.fat) badges.push(`<span class="badge">다이어트 ${a.dietDays}/${D.DIET.days}일</span>`);
     if (a.closed && !a.opened) badges.push('<span class="badge closed">마음을 닫은 아이</span>');
+    if (SIM.isShaggy(a)) badges.push('<span class="badge closed">털 수북 · 미용이 필요해요</span>');
+    else if (SIM.isFresh(a)) badges.push('<span class="badge ready">갓 미용함 · 입양 문의 늘어요</span>');
     if (a.returned) badges.push('<span class="badge">다시 돌아온 아이</span>');
     if (a.reservedBy) badges.push(`<span class="badge ready">${j(esc(a.reservedBy), '이가')} 기다려요</span>`);
     { const m = SIM.ageAdopt(a); if (m >= 1.7) badges.push('<span class="badge ready">어려서 입양 문의 많음</span>'); else if (m <= 0.45) badges.push('<span class="badge closed">나이가 많아 입양이 어려워요</span>'); }
@@ -601,14 +604,15 @@ ${flags.join(' · ') || '건강한 편이에요'}
       const order = (a) => (a.injured ? 0 : SIM.isReady(a) ? 1 : 2);
       const f = UI.tab.animals;
       const careKinds = {
-        all: (a) => a.injured || a.health < 50 || (a.allergy && a.allergy.known) || a.fat || (a.closed && !a.opened) || a.pregnant || a.nursingLeft > 0 || a.coneDays > 0,
+        all: (a) => a.injured || a.health < 50 || (a.allergy && a.allergy.known) || a.fat || (a.closed && !a.opened) || a.pregnant || a.nursingLeft > 0 || a.coneDays > 0 || SIM.isShaggy(a),
         closed: (a) => a.closed && !a.opened,
         sick: (a) => a.injured || a.health < 50 || a.coneDays > 0 || (a.allergy && a.allergy.known),
         mom: (a) => a.pregnant || a.nursingLeft > 0,
         fat: (a) => a.fat,
+        groom: (a) => SIM.isShaggy(a),
       };
       const n = (k) => state.animals.filter(careKinds[k]).length;
-      const t2 = f === 'care' ? sub('care2', [['all', `전체 ${n('all')}`], ['closed', `마음 닫음 ${n('closed')}`], ['sick', `아픔·회복 ${n('sick')}`], ['mom', `임신·수유 ${n('mom')}`], ['fat', `다이어트 ${n('fat')}`]]) : '';
+      const t2 = f === 'care' ? sub('care2', [['all', `전체 ${n('all')}`], ['closed', `마음 닫음 ${n('closed')}`], ['sick', `아픔·회복 ${n('sick')}`], ['mom', `임신·수유 ${n('mom')}`], ['fat', `다이어트 ${n('fat')}`], ['groom', `미용 ${n('groom')}`]]) : '';
       const keep = (a) => f === 'all' || (f === 'dog' && a.species === 'dog') || (f === 'cat' && a.species === 'cat') || (f === 'ready' && SIM.isReady(a)) || (f === 'care' && careKinds[UI.tab.care2 || 'all'](a));
       const list = [...state.animals].filter(keep).sort((a, b) => order(a) - order(b));
       return `${tabs('animals', [['all', `전체 ${state.animals.length}`], ['dog', '개'], ['cat', '고양이'], ['ready', '입양 준비'], ['care', '돌봄 필요']])}${t2}<p class="note">소형견 ${c.ns}/${c.small} · 중·대형견 ${c.nl}/${c.large} · 고양이 ${c.nc}/${c.cat} · 건강 ${D.ADOPT_READY.health}, 신뢰·사회성 ${D.ADOPT_READY.trust} 이상이면 입양을 기다려요. 다이어트 중인 아이는 입양 확률이 절반이에요.</p>
@@ -852,7 +856,9 @@ ${flags.join(' · ') || '건강한 편이에요'}
       <div class="card"><b>${esc(a.name)}의 이야기</b>${(a.story || []).map((t) => `<span class="note">· ${esc(t)}</span>`).join('') || '<span class="note">아직 이야기가 없어요</span>'}</div>
       <div class="btns">${btn('interact', `${a.id}:pet`, done('pet') ? '쓰다듬기 (오늘 함)' : '쓰다듬기', { disabled: done('pet') })}
       ${btn('interact', `${a.id}:treat`, done('treat') ? '간식 (오늘 함)' : `간식 주기 · ${D.ITEMS[item].name} ${Math.floor(state.inv[item] || 0)}`, { disabled: done('treat') || a.fat || (state.inv[item] || 0) < 1 })}
-      ${btn('interact', `${a.id}:play`, done('play') ? '놀아 주기 (오늘 함)' : '놀아 주기', { disabled: done('play') || (state.inv.toys || 0) < 0.2 })}</div>`;
+      ${btn('interact', `${a.id}:play`, done('play') ? '놀아 주기 (오늘 함)' : '놀아 주기', { disabled: done('play') || (state.inv.toys || 0) < 0.2 })}</div>
+      ${SIM.isShaggy(a) ? (state.staff.some((x) => x.role === 'groomer') ? '<p class="note">미용사가 순서대로 미용해 줄 거예요. 털이 수북하면 입양 확률이 조금 낮아요.</p>'
+        : `<div class="btns">${btn('groomOut', a.id, `바깥 미용 맡기기 · ${won(D.GROOM.cost)}원`, { disabled: state.money < D.GROOM.cost })}</div><p class="note">미용사를 채용하면 직접 미용해 줘요.</p>`) : ''}`;
     // 지금 상태 그림(v0.10): 아프거나 마음을 닫았으면 그 모습, 아니면 신뢰에 따라 앉기·꼬리 흔들기·발라당
     const P = G.POSE;
     if (P && P.hasCloseup(a.breed)) {
@@ -892,6 +898,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
   const ACTIONS = {
     build: (a) => { UI.closeSheet(); hooks.onBuildMode(a); return null; },
     demolish: (a) => { const r = SIM.demolish(state, Number(a)); if (r.ok) UI.closeSheet(); return r; },
+    groomOut: (a) => { const r = SIM.groomOut(state, Number(a)); if (r.ok) { UI.handle(r.events || []); UI.showAnimal(Number(a)); hooks.onChange(); } return r; },
     interact: (a) => {
       const [id, kind] = a.split(':');
       const r = SIM.interact(state, Number(id), kind);

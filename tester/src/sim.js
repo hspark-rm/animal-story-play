@@ -140,6 +140,7 @@
     s.stats.born = s.stats.born || 0; s.stats.placed = s.stats.placed || 0; s.stats.doorstep = s.stats.doorstep || 0;
     for (const a of s.animals) {
       if (a.coat == null) a.coat = D.COATS[a.breed] ? a.id % D.COATS[a.breed].length : 0;
+      if (a.furDays == null) { a.furDays = D.GROOM.breeds.includes(a.breed) ? a.id % 50 : 0; a.freshDays = 0; }
       if (a.sex == null) { a.sex = (a.id % 2) ? 'F' : 'M'; a.neutered = a.species === 'exotic' ? null : false; a.vaccinated = false; a.pregnant = false; a.dueIn = 0; a.nursingLeft = 0; }
     }
     for (const f of Object.values(s.facilities)) if (f.buildLeft == null) f.buildLeft = 0;
@@ -696,6 +697,9 @@
       closed, opened: false, days: 0, returned: !!opts.returned, fat, dietDays: 0,
       coat: opts.coat ?? pickCoat(s, breedKey),
       injured, surgeryCost: cost,
+      // 털이 긴 품종은 길에서 오면 수북한 채 들어오는 일이 많다(미용 뒤 지난 날 수)
+      furDays: D.GROOM.breeds.includes(breedKey) ? (!quiet && !opts.returned && rand(s) < D.GROOM.intakeShaggy ? D.GROOM.shaggyDays + randInt(s, 0, 30) : randInt(s, 0, 25)) : 0,
+      freshDays: 0,
     };
   }
   const needsCare = (a) => a.injured || (a.closed && !a.opened) || a.fat;
@@ -935,6 +939,28 @@
     if (kind === 'vaccine') a.vaccinated = true; else { a.neutered = true; a.coneDays = D.MEDICAL.neuter.coneDays; }   // 수술 뒤 넥카라(그림만, 능력치 영향 없음)
     return { ok: true, msg: `${a.name} ${D.MEDICAL[kind].name} 완료 (${won(cost)})` };
   }
+  SIM.isShaggy = (a) => D.GROOM.breeds.includes(a.breed) && (a.furDays || 0) >= D.GROOM.shaggyDays;
+  SIM.isFresh = (a) => (a.freshDays || 0) > 0;
+  function groomAnimal(s, a, ev, by) {
+    a.furDays = 0;
+    a.freshDays = D.GROOM.freshDays;
+    a.groomedDay = s.day;
+    s.awareness += D.GROOM.aware;
+    s.stats.groomed = (s.stats.groomed || 0) + 1;
+    story(s, a, `${by ? `${by}의 손에` : '바깥 미용실에서'} 털을 다듬고 새 모습이 됐다`);
+    pushFeed(s, `${a.name}의 미용 전·후 사진이 공유되고 있다`, 'good');
+    if (ev) ev.push({ type: 'toast', text: `${a.name} 미용 완료! 한동안 입양 문의가 늘어요` });
+  }
+  // 미용사가 없을 때 아이 카드에서 바깥 미용을 맡긴다
+  SIM.groomOut = (s, id) => {
+    const a = s.animals.find((x) => x.id === id);
+    if (!a || !SIM.isShaggy(a)) return { ok: false };
+    if (s.money < D.GROOM.cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'medical', D.GROOM.cost);
+    const ev = [];
+    groomAnimal(s, a, ev, null);
+    return { ok: true, msg: `${a.name} 바깥 미용 완료 (${won(D.GROOM.cost)})`, events: ev };
+  };
   SIM.treat = (s, id, kind) => {
     const a = s.animals.find((x) => x.id === id);
     return a ? treat(s, a, kind) : { ok: false };
@@ -1053,6 +1079,7 @@
     const phase = ctx.phase || trendPhase(s);
     const fee = D.ADOPT_FEES[s.feeLevel];
     let p = 0.03 * D.BREEDS[a.breed].adopt * (1 + repEff(s) / 400) * fee.adopt * (1 + groom * 0.04) * (a.fat ? D.DIET.adoptMult : 1) * SIM.ageAdopt(a);
+    if (SIM.isShaggy(a)) p *= D.GROOM.adoptShaggy; else if (SIM.isFresh(a)) p *= D.GROOM.adoptFresh;   // 미용(v0.12)
     if (has(s, 'adoption')) p *= 1.5;
     if (has(s, 'main')) p *= 1.15;                       // 본관 입양 상담
     p *= 1 + SIM.moodEffect(s).adopt;                    // 분위기
@@ -1143,6 +1170,12 @@
     const train = power(s, 'train', attending);
     const care = power(s, 'care', attending);
     const groom = power(s, 'groom', attending);
+    // 미용(v0.12): 출근한 미용사마다 가장 수북한 아이 한 명을 능력에 비례한 확률로 미용한다
+    for (const st of s.staff) {
+      if (st.role !== 'groomer' || !attending.has(st.id)) continue;
+      const shaggy = s.animals.filter((a) => SIM.isShaggy(a) && !a.injured).sort((x, y) => y.furDays - x.furDays)[0];
+      if (shaggy && rand(s) < Math.min(1, (st.stats.groom || 0) * lvl(st) / D.GROOM.perPower)) groomAnimal(s, shaggy, ev, st.name);
+    }
     const n = Math.max(6, s.animals.length);
     const rainy = hasBuff(s, 'rain');
     const yardBig = 1 + D.MERGE.yardBonus * (Math.max(1, ...SIM.groups(s).yard.map((g) => g.len)) - 1);
@@ -1163,6 +1196,8 @@
       a.ageDays++;
       if (a.nursingLeft) a.nursingLeft--;
       if (a.coneDays) a.coneDays--;
+      if (a.freshDays) a.freshDays--;
+      if (D.GROOM.breeds.includes(a.breed)) a.furDays = (a.furDays || 0) + 1;
       if (a.pregnant && --a.dueIn <= 0) births.push(a);
       const b = D.BREEDS[a.breed];
       const fac = s.facilities[a.home];

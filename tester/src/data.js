@@ -500,6 +500,13 @@
 
   // 다이어트: 살이 찐 채로 들어오는 개. 다이어트 사료를 30일 먹으면 끝난다.
   // 유행 품종은 '반짝 인기' 때 간식을 많이 먹고 자라 살찐 채로 들어오는 경우가 많다
+  // 미용(v0.12): 털이 긴 품종은 미용 뒤 shaggyDays일이 지나면 '털 수북'. 미용사가 출근한 날 가장 수북한 아이를
+  // (미용 능력×레벨)/perPower 확률로 미용한다. 미용사가 없으면 아이 카드에서 바깥 미용(cost)을 맡긴다
+  DATA.GROOM = {
+    breeds: ['maltese', 'bichon', 'poodle', 'maltipoo', 'pomeranian', 'shihtzu', 'yorkie', 'schnauzer', 'samoyed', 'spitz', 'persian', 'angora', 'ragdoll', 'norwegian', 'mainecoon'],
+    shaggyDays: 40, intakeShaggy: 0.6, perPower: 8, cost: 40_000,
+    adoptShaggy: 0.85, adoptFresh: 1.15, freshDays: 7, aware: 0.3,
+  };
   DATA.DIET = { rate: 0.12, trendRate: 0.4, days: 30, adoptMult: 0.5, socialMult: 0.7 };
 
   DATA.INJURY = { rate: 0.08, cost: [2_000_000, 5_000_000] };
