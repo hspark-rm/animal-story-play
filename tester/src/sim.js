@@ -290,7 +290,7 @@
 
   SIM.mainStage = (s) => D.MAIN_STAGE_LV.filter((lv) => s.level >= lv).length;   // 1~3
 
-  /* ---------- 특수 사업·유튜브·굿즈 개발 (v0.8) ---------- */
+  /* ---------- 특수 사업·너튜브·굿즈 개발 (v0.8) ---------- */
   SIM.projectLock = (s, id) => {
     const P = D.PROJECTS[id], n = P.need;
     if (n.lv && s.level < n.lv) return `보호소 등급 Lv${n.lv}부터`;
@@ -309,7 +309,7 @@
     if (lock) return { ok: false, msg: lock };
     if (s.money < P.cost) return { ok: false, msg: '자금이 부족해요' };
     expense(s, 'campaign', P.cost);
-    if (id === 'channel') { s.channel = { subs: 0, videos: 0 }; pushFeed(s, `${s.shelterName} 유튜브 채널이 문을 열었다`, 'good'); return { ok: true, msg: '채널을 열었어요. 이제 영상을 찍어 보세요' }; }
+    if (id === 'channel') { s.channel = { subs: 0, videos: 0 }; pushFeed(s, `${s.shelterName} 너튜브 채널이 문을 열었다`, 'good'); return { ok: true, msg: '채널을 열었어요. 이제 영상을 찍어 보세요' }; }
     s.projects = (s.projects || []).filter((p) => p.id !== id);
     s.projects.push({ id, start: s.day, until: s.day + P.days, done: false });
     if (id === 'lecture') { s.awareness = clamp(s.awareness + 6, 0, 100); s.buffs.push({ id: 'lecture', until: s.day + 30 }); }

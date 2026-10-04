@@ -781,13 +781,13 @@ ${flags.join(' · ') || '건강한 편이에요'}
           ${btn('newGame', '', UI.confirmNew ? '정말 처음부터? 한 번 더 누르면 시작해요' : '새 게임', { ghost: true })}`;
       }
       if (t === 'project') {
-        // 특수 사업(v0.8): 후반 해금 사업, 유튜브 채널, 굿즈 개발
+        // 특수 사업(v0.8): 후반 해금 사업, 너튜브 채널, 굿즈 개발
         const rows = Object.entries(D.PROJECTS).map(([k, P]) => {
           const lock = SIM.projectLock(state, k);
           return `<div class="card"><b>${P.name}</b><span class="note">${won(P.cost)}원${P.days ? ` · ${P.days}일` : ''} · ${P.desc}</span>
             ${lock ? `<span class="note">${lock}</span>` : `<div class="btns">${btn('project', k, '시작하기', { disabled: state.money < P.cost })}</div>`}</div>`;
         }).join('');
-        const ch = state.channel ? `<div class="card"><b>유튜브 채널 · 구독자 ${state.channel.subs.toLocaleString()}명</b><span class="note">영상 ${state.channel.videos}편 · 달마다 약 ${won(state.channel.subs * D.CHANNEL_PAY)}원 수익 · 영상은 하루에 하나</span>
+        const ch = state.channel ? `<div class="card"><b>너튜브 채널 · 구독자 ${state.channel.subs.toLocaleString()}명</b><span class="note">영상 ${state.channel.videos}편 · 달마다 약 ${won(state.channel.subs * D.CHANNEL_PAY)}원 수익 · 영상은 하루에 하나</span>
           <div class="btns">${Object.entries(D.VIDEOS).map(([k, v]) => btn('video', k, `${v.name} · ${won(v.cost)}원`, { disabled: state.money < v.cost || state.channel.lastShot === state.day })).join('')}</div>
           <span class="note">${Object.values(D.VIDEOS).map((v) => `${v.name}: ${v.desc}`).join(' / ')}</span></div>` : '';
         const G = state.goods || { released: [], dev: null };
@@ -798,8 +798,8 @@ ${flags.join(' · ') || '건강한 편이에요'}
           ${G.released.length ? `<span class="note">굿즈 판매 월 약 ${won(SIM.goodsMonthly(state))}원</span>` : ''}
           ${G.dev ? `<span class="note">${D.GOODS.find((x) => x.id === G.dev.id).name} 개발 중 · ${G.dev.left}일 남음</span>`
             : next && hasShop ? `<div class="btns">${btn('goods', next.id, `${next.name} 개발 · ${won(next.cost)}원 · ${next.days}일`, { disabled: state.money < next.cost })}</div>` : ''}</div>`;
-        const t2 = sub('project2', [['biz', '사업'], ['tube', '유튜브'], ['goods', '굿즈']]);
-        body = t2 + ({ biz: rows, tube: ch || '<p class="note">[유튜브 채널 만들기] 사업을 마치면 열려요.</p>', goods }[UI.tab.project2]);
+        const t2 = sub('project2', [['biz', '사업'], ['tube', '너튜브'], ['goods', '굿즈']]);
+        body = t2 + ({ biz: rows, tube: ch || '<p class="note">[너튜브 채널 만들기] 사업을 마치면 열려요.</p>', goods }[UI.tab.project2]);
       }
       return tabs('manage', [['campaign', '캠페인'], ['celeb', '섭외'], ['project', '특수 사업'], ['money', '운영·자금'], ['report', '보고서'], ['rank', '순위']]) + body;
     },
