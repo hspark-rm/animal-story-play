@@ -118,7 +118,8 @@
       if (!draw()) return;
       i++;
       const a = getA(), row = a ? POSE.cuState(a)[1] : '';
-      setTimeout(tick, row === 'tremble' ? 110 : row === 'groom' ? 650 : row === 'sick' || row === 'preg' || row === 'calm' ? 420 : 240);
+      // 사용자 요청(v0.17.2): 카드 애니메이션을 예전의 1/4 빠르기로(프레임 간격 ×4)
+      setTimeout(tick, 4 * (row === 'tremble' ? 110 : row === 'groom' ? 650 : row === 'sick' || row === 'preg' || row === 'calm' ? 420 : 240));
     };
     for (const img of Object.values(im)) if (img && !img.complete) img.addEventListener('load', () => draw(), { once: true });
     tick();
