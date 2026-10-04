@@ -674,7 +674,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
           const extra = st.role === 'volunteer'
             ? `${st.trained ? '교육 이수' : '교육 전'} · 실수 ${st.mistakes}번`
             : `월급 ${won(SIM.salary(st))}원`;
-          const actions = [btn('rename', `staff:${st.id}`, '이름 짓기', { ghost: true })];
+          const actions = [btn('staffCard', st.id, '상태 보기'), btn('rename', `staff:${st.id}`, '이름 짓기', { ghost: true })];
           if (st.role === 'volunteer' && !st.trained) actions.push(btn('trainVol', st.id, `교육 ${won(D.VOLUNTEER.training)}`, { disabled: state.money < D.VOLUNTEER.training }));
           if (st.role !== 'volunteer') actions.push(btn('train', st.id, `연수 ${won(D.STAFF.trainCost)}`, { ghost: true, disabled: state.money < D.STAFF.trainCost || (st.trainedDay && state.day - st.trainedDay < D.STAFF.trainCooldown) }));
           if (st.role !== 'owner') actions.push(btn('fire', st.id, '내보내기', { ghost: true }));
@@ -863,6 +863,28 @@ ${flags.join(' · ') || '건강한 편이에요'}
           ${news || '<span class="sub">새 가족의 첫 소식을 기다리는 중</span>'}</div></div>`;
       }).join('');
     },
+    // 직원 상태창(v0.17): 지도에서 사람을 누르면 열린다. 직원 관리도 핵심 콘텐츠
+    staff() {
+      const st = state.staff.find((x) => x.id === UI.staffId);
+      if (!st) return '<p class="note">보호소를 떠난 사람이에요.</p>';
+      const role = st.role === 'volunteer' ? D.VOLUNTEER.name : st.role === 'owner' ? '대표 (나)' : D.ROLES[st.role].name;
+      const main = st.role === 'volunteer' ? 'care' : st.role === 'owner' ? null : D.ROLES[st.role].main;
+      const need = 40 * st.level, max = st.level >= D.STAFF.maxLevel || st.role === 'owner';
+      const bars = Object.entries(D.STATS).map(([k, l]) => `<span class="${k === main ? 'main-stat' : ''}">${l}${k === main ? ' ★' : ''}</span><span class="bar"><i style="width:${(st.stats[k] || 0) * 10}%"></i></span><b class="num">${st.stats[k] ?? 0}</b>`).join('');
+      const actions = [btn('rename', `staff:${st.id}`, '이름 짓기', { ghost: true })];
+      if (st.role === 'volunteer' && !st.trained) actions.push(btn('trainVol', st.id, `교육 ${won(D.VOLUNTEER.training)}`, { disabled: state.money < D.VOLUNTEER.training }));
+      if (st.role !== 'volunteer' && st.role !== 'owner') actions.push(btn('train', st.id, `연수 ${won(D.STAFF.trainCost)}`, { disabled: state.money < D.STAFF.trainCost || (st.trainedDay && state.day - st.trainedDay < D.STAFF.trainCooldown) }));
+      if (st.role !== 'owner') actions.push(btn('fire', st.id, '내보내기', { ghost: true }));
+      const doing = hooks.staffDoing ? hooks.staffDoing(st.id) : '';
+      return `<div class="pose-card" id="staff-portrait"></div>
+        <div class="card ${st.legend ? 'legend' : ''}"><b>${esc(st.name)}${st.title ? ` · ${esc(st.title)}` : ''}</b>
+          <span class="note">${role} · 레벨 ${st.level}${max ? ' (최고)' : ''} · ${st.role === 'volunteer' || st.role === 'owner' ? '무급' : `월급 ${won(SIM.salary(st))}원`}</span>
+          ${max ? '' : `<span class="note">다음 레벨까지 ${Math.max(0, need - st.exp)}일</span><div class="bars"><span>경험</span><span class="bar"><i style="width:${Math.min(100, st.exp / need * 100)}%"></i></span></div>`}
+          ${doing ? `<span class="note">지금: ${esc(doing)}</span>` : ''}
+          ${st.role === 'volunteer' ? `<span class="note">${st.trained ? '교육 이수' : '교육 전 · 실수가 잦아요'} · 실수 ${st.mistakes || 0}번</span>` : ''}</div>
+        <div class="card"><b>능력치</b><div class="bars stat-bars">${bars}</div>${main ? `<span class="note">★ 주 능력치: ${D.STATS[main]}. 레벨이 오를 때마다 +1</span>` : ''}</div>
+        ${renameRow('staff', st.id, st.name) || `<div class="btns">${actions.join('')}</div>`}`;
+    },
     feed() {
       // 피드 분리(v0.16): 전체 · 입양 · SNS 소식 · 알림
       const cat = (f) => f.cat || (f.kind === 'warn' ? 'alert' : /입양|새 가족/.test(f.text) ? 'adopt' : 'sns');
@@ -882,6 +904,15 @@ ${flags.join(' · ') || '건강한 편이에요'}
     const y = body.scrollTop;
     body.innerHTML = RENDER[UI.sheet]();
     body.scrollTop = y;
+    if (UI.sheet === 'staff') {
+      // 직원 초상: 4방향 띠의 서 있는 모습(없으면 예전 그림)
+      const st = state.staff.find((x) => x.id === UI.staffId), box = $('staff-portrait');
+      if (st && box) {
+        const base = st.role === 'owner' ? `player-${st.gender || 'f'}` : st.sprite && SPR.has(`named-${st.sprite}-0`) ? `named-${st.sprite}` : `staff-${st.role === 'owner' ? 'carer' : st.role}`;
+        const c = G.POSE && G.POSE.has(base) ? G.POSE.portrait(base, 'fidle', null, 2) : null;
+        if (c) box.appendChild(c); else if (SPR.has(`${base}-0`)) box.innerHTML = `<img alt="" class="pose-portrait" src="${SPR.path(`${base}-0`)}" style="height:110px">`;
+      }
+    }
   };
 
   UI.moveHint = (f) => {
@@ -895,6 +926,16 @@ ${flags.join(' · ') || '건강한 편이에요'}
   };
 
   // 아이 카드(v0.8): 지도에서 아이를 누르면 상태·이야기·교감 버튼이 나온다
+  UI.showStaff = (id) => {
+    const st = state.staff.find((x) => x.id === id);
+    if (!st) return;
+    UI.sheet = 'staff';
+    UI.staffId = id;
+    $('sheet').hidden = false;
+    $('sheet-title').textContent = st.name;
+    UI.renderSheet();
+  };
+
   UI.showAnimal = (id) => {
     const a = state.animals.find((x) => x.id === id);
     if (!a) return;
@@ -969,6 +1010,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     goods: () => SIM.developGoods(state),
     branch: (a) => { const [no, t] = a.split(':'); const r = SIM.openBranch(state, Number(no), t); if (r.ok) hooks.onChange(); return r; },
     train: (a) => SIM.trainStaff(state, Number(a)),
+    staffCard: (a) => { UI.showStaff(Number(a)); return null; },
     removeItem: (a) => { const r = SIM.removeYardItem(state, a); if (r.ok) { UI.closeSheet(); hooks.onChange(); } return r; },
     postJob: (a) => { const r = SIM.postJob(state, a); if (r.ok && r.msg) UI.toast(r.msg); return r; },
     hire: (a) => { const [role, i] = a.split(':'); const r = SIM.hireCandidate(state, role, Number(i)); if (r.ok) UI.toast(`${r.name}님이 합류했어요`); return r; },

@@ -1312,6 +1312,14 @@
         if (d < bd) { bd = d; best = spr; }
       }
       if (best) { UI.showAnimal(best.animal.id); return; }
+      // 사람(직원·봉사자·나)을 눌렀으면 직원 상태창
+      let who = null, wd = 26;
+      for (const spr of Object.values(this.staffSpr)) {
+        if (!spr.active || !spr.visible) continue;
+        const d = Math.hypot(w.x - spr.x, w.y - (spr.y - (spr.bodyH || spr.displayHeight) * 0.5));
+        if (d < wd) { wd = d; who = spr; }
+      }
+      if (who) { UI.showStaff(who.staff.id); return; }
       const f = SIM.facilityAt(state, x, y);
       if (f) UI.showFacility(f);
     }
@@ -1394,6 +1402,13 @@
       if (kind === 'play') a.act = 'play';
     },
     onSeason(se) { if (scene() && scene().applySeason) scene().applySeason(se); },
+    staffDoing(id) {
+      const sc = scene(), spr = sc && Object.values(sc.staffSpr).find((x) => x.staff.id === id);
+      if (!spr) return '';
+      if (spr.hugging) return '아이를 안아 주는 중';
+      if (spr.careFor) { const a = state.animals.find((x) => x.id === spr.careFor); return a ? `${a.name}에게 가는 중` : '돌보러 가는 중'; }
+      return spr.moving ? '보호소를 둘러보는 중' : '잠깐 쉬는 중';
+    },
     onGroomed(id) { const sc = scene(); if (sc && sc.groomShow) sc.groomShow(id); },
     onEmote(id, key) { const sc = scene(); if (sc && sc.animalSpr && sc.animalSpr[id]) sc.emote(sc.animalSpr[id], key, 2200); },
     onModal() { UI.setSpeed(speed); },

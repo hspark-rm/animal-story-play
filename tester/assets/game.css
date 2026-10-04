@@ -291,3 +291,8 @@ details.memo { margin: 2px 0; }
 .notify small { display: block; font-size: 12px; line-height: 1.3; opacity: .85; }
 @keyframes notify-in { from { transform: translateX(30px); } to { transform: none; } }   /* 투명도는 건드리지 않는다: 애니메이션이 멈춘 창에서도 보이게 */
 .letter-body { white-space: pre-line; }
+
+/* 직원 상태창(v0.17) */
+.stat-bars { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: center; }
+.stat-bars .main-stat { font-weight: 700; }
+.stat-bars .num { font-variant-numeric: tabular-nums; min-width: 1.5em; text-align: right; }
