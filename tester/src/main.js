@@ -66,7 +66,8 @@
     'iso-cattery-2x': [282, 296], 'iso-cattery-3x': [313, 251], 'iso-cattery-2y': [80, 236], 'iso-cattery-3y': [57, 271],
     // 본관은 정면에 가깝게 그려져 있어 폭 대신 앞 벽 길이로 크기를 맞춘다('left')
     'iso-main-1': [265, 370, 'left'], 'iso-main-2': [320, 293, 'left'], 'iso-main-3': [305, 334, 'left'],
-    'iso-bigkennel': [115, 165], 'iso-bigkennel-2x': [233, 263], 'iso-bigkennel-3x': [277, 260], 'iso-bigkennel-2y': [97, 248], 'iso-bigkennel-3y': [82, 257],
+    'iso-bigkennel': [115, 165],
+    'iso-edu': [115, 171], 'iso-rehab': [110, 172], 'iso-lab': [113, 171], 'iso-hall': [135, 157], 'iso-bigkennel-2x': [233, 263], 'iso-bigkennel-3x': [277, 260], 'iso-bigkennel-2y': [97, 248], 'iso-bigkennel-3y': [82, 257],
   };
   // 산책장 울타리 조각: [기준점 x 비율, 기준점 y 비율, 그림 속 변 가로 길이(px), 월드 가로 길이]
   // 기준점 = 조각 왼쪽 끝이 바닥 변과 만나는 점. 값은 tools/make_yard_parts.py 출력에서 옮김
@@ -95,6 +96,12 @@
     preload() { SPR.preload(this); }
 
     create() {
+      // 지도 글자는 확대해도 깨지지 않게 높은 해상도로 그린다(기본 해상도는 1이라 확대하면 뭉개진다)
+      if (!this.add.textHiRes) {
+        const plain = this.add.text.bind(this.add);
+        this.add.text = (x, y, t, style = {}) => plain(x, y, t, { resolution: Math.max(3, DPR * 2), ...style });
+        this.add.textHiRes = true;
+      }
       setDims(state);
       SPR.build(this, D);
       this.cameras.main.setBackgroundColor(SPR.has('bg-canopy') ? '#5f9e45' : '#a8dcef');
@@ -106,7 +113,7 @@
       // 구름: 지도 위쪽을 천천히 흘러간다(가리지 않게 반투명)
       for (let i = 1; i <= 3; i++) {
         if (!SPR.has(`bg-cloud-${i}`)) continue;
-        const c = this.add.image(Math.random() * WORLD_W, TOP - 80 + Math.random() * WORLD_H * 0.25, `bg-cloud-${i}`).setAlpha(0.88).setDepth(5400);
+        const c = this.add.image(Math.random() * WORLD_W, TOP - 260 + Math.random() * 160, `bg-cloud-${i}`).setAlpha(0.88).setDepth(5400);   // 부지 뒤 하늘에만(건물을 가리지 않게)
         fitWidth(c, 150 + Math.random() * 60);
         const drift = () => this.tweens.add({ targets: c, x: WORLD_W + 200, duration: (WORLD_W + 200 - c.x) * 90, onComplete: () => { c.x = -200; drift(); } });
         drift();
@@ -368,6 +375,10 @@
     // 이어 지은 산책장: 칸마다 잔디를 깔고, 바깥 변에만 산책장 그림에서 떼어 낸 울타리 조각을 세운다
     // (tools/make_yard_parts.py). 위·왼쪽 변은 뒤 울타리, 오른쪽·아래 변은 앞 울타리
     drawYards(groups) {
+      // 바뀐 게 없으면 다시 만들지 않는다(날마다 전부 지우고 새로 그리던 부담 줄이기)
+      const sig = JSON.stringify(groups.map((g) => g.cells)) + (MIR ? 'm' : '');
+      if (this.yardSig === sig && this.yardObjs) return;
+      this.yardSig = sig;
       for (const o of this.yardObjs || []) o.destroy();
       this.yardObjs = [];
       const fx = SPR.has('yard-fence-x'), fy = SPR.has('yard-fence-y');
@@ -541,6 +552,8 @@
       }
       this.sortDepths();
       this.buildWalkGrid();
+      this.refreshPaths();
+      this.drawPads();
       const alive = new Map(state.animals.map((a) => [a.id, a]));
       for (const [id, spr] of Object.entries(this.animalSpr)) {
         if (!alive.has(Number(id))) { this.leave(spr); delete this.animalSpr[id]; }
@@ -663,6 +676,7 @@
         // 공 던지기: 공이 굴러가면 쫓아가서 물어 온다
         const ball = prop('item-toys', spr.x + dir * 8, spr.y);
         const to = { x: spr.x + dir * (40 + Math.random() * 30), y: spr.y + (Math.random() - 0.5) * 24 };
+        if (!this.walkable(to)) return;   // 공이 건물 쪽으로 굴러가면 던지지 않는다
         this.tweens.add({ targets: ball, x: to.x, y: to.y, duration: 650, ease: 'Quad.Out' });
         spr.act = 'fetch'; this.go(spr, to, true);
         spr.prop = ball;
@@ -675,6 +689,7 @@
           const yarn = prop('prop-yarn', spr.x + dir * 8, spr.y);
           fitHeight(yarn, 11);
           const to = { x: spr.x + dir * (22 + Math.random() * 16), y: spr.y + (Math.random() - 0.5) * 14 };
+          if (!this.walkable(to)) return;
           this.tweens.add({ targets: yarn, x: to.x, y: to.y, angle: dir * 360, duration: 700, ease: 'Quad.Out' });
           spr.act = 'fetch'; this.go(spr, { x: to.x - dir * 8, y: to.y }, true);
           spr.prop = yarn;
@@ -750,7 +765,7 @@
         v.base = key;
         (this.visitors = (this.visitors || []).filter((x) => x.active)).push(v);
         // 방문자 표시: 맨 앞 사람 머리 위에 "처음 왔어요~ / 또 왔어요~"
-        if (i === 0) v.label = this.add.text(v.x, v.y, again ? '또 왔어요~' : '처음 왔어요~', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '12px', color: again ? '#c0506e' : '#3b6fd0', backgroundColor: '#fffdf5', padding: { x: 4, y: 2 } }).setOrigin(0.5, 1).setDepth(5200);
+        if (i === 0) v.label = this.add.text(v.x, v.y, again ? '또 왔어요~' : '처음 왔어요~', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '13px', color: again ? '#d0466e' : '#2f66c8', stroke: '#ffffff', strokeThickness: 4 }).setOrigin(0.5, 1).setDepth(5200);
         return v;
       });
       const offset = (pts, i) => pts.map((p) => ({ x: p.x - i * 14, y: p.y + i * 5 }));
@@ -818,8 +833,25 @@
       }
     }
 
+    // 건물 바닥 받침: 건물이 차지한 칸을 돌판으로 깔아 건물과 바닥 칸이 맞아 보이게 한다(산책장·꾸밈은 빼고)
+    drawPads() {
+      if (!this.padLayer) this.padLayer = this.add.graphics().setDepth(-1.2);
+      const g = this.padLayer.clear();
+      for (const f of Object.values(state.facilities)) {
+        const def = D.FACILITIES[f.type];
+        if (def.decor || f.type === 'yard') continue;
+        const n = SIM.size(f.type), e = 0.03;
+        const pts = [iso(f.x + e, f.y + e), iso(f.x + n - e, f.y + e), iso(f.x + n - e, f.y + n - e), iso(f.x + e, f.y + n - e)];
+        g.fillStyle(0xd8c9a6, 1).fillPoints(pts, true);
+        g.lineStyle(2, 0xa8956e, 1).strokePoints(pts, true);
+      }
+    }
+
     // 산책장 놀이기구: 산책장 칸 위에 그린다(v0.7). 개는 그 위를 그대로 지나다닌다
     drawYardItems() {
+      const sig = JSON.stringify(state.yardItems || {});
+      if (this.itemSig === sig && this.itemObjs) return;
+      this.itemSig = sig;
       for (const o of this.itemObjs || []) o.destroy();
       this.itemObjs = [];
       for (const it of SIM.yardItemList(state)) {
@@ -882,14 +914,35 @@
       this.walkGrid = g;
     }
 
+    walkable(p) {
+      const c = toCell(p.x, p.y), x = Math.floor(c.x), y = Math.floor(c.y);
+      return x >= 0 && y >= 0 && x < COLS && y < ROWS && !!(this.walkGrid && this.walkGrid[y * COLS + x]);
+    }
+
+    // 건물이 새로 서거나 옮겨지면, 이미 정해 둔 길이 그 건물을 지나는지 보고 다시 찾는다
+    refreshPaths() {
+      for (const spr of [...Object.values(this.animalSpr || {}), ...Object.values(this.staffSpr || {})]) {
+        if (!spr.path || !spr.path.length) continue;
+        if (spr.path.every((p) => this.walkable(p))) continue;
+        const dest = spr.path[spr.path.length - 1];
+        spr.path = this.route({ x: spr.px ?? spr.x, y: spr.py ?? spr.y }, dest);
+      }
+    }
+
     // 칸 단위 길찾기(너비 우선, 8방향, 건물 모서리는 비스듬히 못 지나감) → 꺾이는 곳만 남긴 경유점
     route(from, to) {
       const W = this.walkGrid;
       const a = toCell(from.x, from.y), b = toCell(to.x, to.y);
       const cl = (v, m) => Math.max(0, Math.min(m - 1, Math.floor(v)));
-      const sx = cl(a.x, COLS), sy = cl(a.y, ROWS), tx = cl(b.x, COLS), ty = cl(b.y, ROWS);
+      let sx = cl(a.x, COLS), sy = cl(a.y, ROWS), tx = cl(b.x, COLS), ty = cl(b.y, ROWS);
+      if (W && !W[ty * COLS + tx]) {
+        // 목표 칸에 건물이 있으면 그 건물 앞의 가장 가까운 빈칸으로 바꾼다(건물 안으로 걸어 들어가지 않게)
+        let best = -1, bd = Infinity;
+        for (let i = 0; i < W.length; i++) if (W[i]) { const d = Math.hypot(i % COLS - b.x + 0.5, ((i / COLS) | 0) - b.y + 0.5); if (d < bd) { bd = d; best = i; } }
+        if (best >= 0) { tx = best % COLS; ty = (best / COLS) | 0; to = iso(tx + 0.3 + Math.random() * 0.4, ty + 0.3 + Math.random() * 0.4); }
+      }
       if (!W || (sx === tx && sy === ty)) return [to];
-      const ok = (x, y) => x >= 0 && y >= 0 && x < COLS && y < ROWS && (W[y * COLS + x] || (x === tx && y === ty));
+      const ok = (x, y) => x >= 0 && y >= 0 && x < COLS && y < ROWS && W[y * COLS + x];
       const prev = new Int32Array(COLS * ROWS).fill(-1), start = sy * COLS + sx, goal = ty * COLS + tx;
       prev[start] = start;
       const q = [start];
@@ -1126,6 +1179,8 @@
     }
     UI.save(state);
     UI.askPending();
+    // 엔딩을 보다가 창을 닫았으면 다시 띄운다(계속 운영을 고르기 전까지)
+    if (state.ending && !state.ending.continued) UI.handle([{ type: 'ending', report: SIM.finalReport(state) }]);
   }
 
   function startNew() {

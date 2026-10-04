@@ -260,3 +260,8 @@ table.ledger tr.total td { font-weight: 700; border-top: 2px solid var(--edge); 
 
 /* 손가락으로 누르기 쉽게(점검 반영): 버튼 높이 44px 이상 */
 .btns .act, .btns button, .tabs button, #sheet-close, .speed button { min-height: 44px; }
+
+/* 건강 메모 접기, 상단 수용 표시 */
+details.memo summary { font-size: 12px; color: var(--ink-2); cursor: pointer; }
+details.memo { margin: 2px 0; }
+#cap.neg { color: var(--bad); }

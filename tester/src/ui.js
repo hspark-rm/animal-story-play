@@ -6,7 +6,7 @@
   const won = (v) => `${Math.round(v / 10000).toLocaleString()}만`;
   const SAVE_KEY = 'animal-story-save-v2';
 
-  const UI = { sheet: null, modalOpen: false, tab: { people: 'staff', manage: 'campaign', build: 'fac' }, renaming: null };
+  const UI = { sheet: null, modalOpen: false, tab: { people: 'staff', manage: 'campaign', build: 'fac', animals: 'all', goods: 'all', facs: 'home', album: 'all' }, renaming: null };
   const BUILD = G.BUILD || { flavor: 'dev', version: '0' };
   // 배포판은 테스트용 하나로 통합했다(2026-10-04). 보호소 이름 짓기와 튜토리얼은 항상 켠다
   UI.features = { shelterName: true, tutorial: true };
@@ -18,7 +18,10 @@
   UI.load = () => {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      return s && s.v === D.SAVE_VERSION ? SIM.migrate(s) : null;
+      if (!s) return null;
+      // 버전이 달라도 버리지 않고 옮겨 본다. 옮기지 못하면 새로 시작한다
+      if (s.v !== D.SAVE_VERSION) { s.v = D.SAVE_VERSION; UI.migratedNotice = true; }
+      return SIM.migrate(s);
     } catch (e) { return null; }
   };
   UI.save = (s) => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* 저장이 막힌 창에서도 게임은 계속된다 */ } };
@@ -35,6 +38,11 @@
     $('rep').textContent = Math.round(state.reputation);
     $('aware').textContent = Math.round(state.awareness);
     $('donors').textContent = `${state.donors}명`;
+    // 수용 현황: 전체 마릿수/정원. 한 종이라도 꽉 차면 빨갛게(자세한 건 동물 탭)
+    const c = SIM.capacity(state), full = (c.small && c.ns >= c.small) || (c.large && c.nl >= c.large) || (c.cat && c.nc >= c.cat);
+    $('cap').textContent = `${c.nd + c.nc}/${c.dog + c.cat}`;
+    $('cap').classList.toggle('neg', !!full);
+    $('cap-chip').title = `소형견 ${c.ns}/${c.small} · 중·대형견 ${c.nl}/${c.large} · 고양이 ${c.nc}/${c.cat}`;
     const rb = $('report-btn');
     rb.hidden = !state.reportDue;
     if (state.reportDue) {
@@ -480,7 +488,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     return `<div class="row">${icon(a.fat ? 'animal-fat' : 'animal', a.breed)}
       <div class="main"><span class="name">${esc(a.name)} ${sexMark(a)}</span><span class="sub">${b.name}${SIM.coatName(a) ? `(${SIM.coatName(a)})` : ''} · ${a.species === 'dog' ? `${D.DOG_SIZE[SIM.dogSize(a)]} · ` : ''}${SIM.ageText(a)} · 평균 수명 ${b.life[0]}–${b.life[1]}년 · 보호 ${a.days}일째</span>
       <span class="sub">${a.species === 'exotic' ? '' : `중성화 ${a.neutered ? 'O' : 'X'} · `}예방접종 ${a.vaccinated ? 'O' : 'X'}${a.allergy && a.allergy.known ? ` · ${a.allergy.cause} 알러지` : ''}</span>
-      <span class="sub">건강 메모: ${b.health}</span>
+      <details class="memo"><summary>건강 메모</summary><span class="sub">${b.health}</span></details>
       ${issues.length ? `<span class="sub">입양까지: ${issues.join(' · ')}</span>` : ''}
       <div class="bars">${bar('건강', a.health)}${bar('신뢰', a.trust)}${bar('사회성', a.social)}</div>
       ${badges.length ? `<div class="badges">${badges.join('')}</div>` : ''}
@@ -513,7 +521,10 @@ ${flags.join(' · ') || '건강한 편이에요'}
           <h3 class="section-title">산책장 놀이기구 (산책장 칸 위에 놓기)</h3>${items}
           <h3 class="section-title">꾸밈 콤보</h3>${dc}`;
       }
-      const rows = Object.entries(D.FACILITIES).filter(([k, f]) => (k !== 'exotic' || D.EXOTIC.enabled) && !f.decor && !f.fixed).map(([k, f]) => {
+      // 시설 세분: 아이들 집 / 운영 / 후반(등급 6 이상)
+      const fcat = (k, f) => (f.lv >= 6 ? 'late' : ['kennel', 'bigkennel', 'cattery', 'yard', 'exotic'].includes(k) ? 'home' : 'ops');
+      const ft = UI.tab.facs;
+      const rows = tabs('facs', [['home', '아이들 집'], ['ops', '운영'], ['late', '후반 시설']]) + Object.entries(D.FACILITIES).filter(([k, f]) => (k !== 'exotic' || D.EXOTIC.enabled) && !f.decor && !f.fixed && fcat(k, f) === ft).map(([k, f]) => {
         const locked = f.lv > state.level;
         return `<div class="row" ${locked ? 'style="opacity:.6"' : ''}>${icon('tile', k)}
           <div class="main"><span class="name">${f.name}</span><span class="sub">${won(f.cost)}원 · 공사 ${f.days}일 · 월 ${won(f.upkeep)}원</span><span class="sub">${f.desc}</span></div>
@@ -528,8 +539,10 @@ ${flags.join(' · ') || '건강한 편이에요'}
     animals() {
       const c = SIM.capacity(state);
       const order = (a) => (a.injured ? 0 : SIM.isReady(a) ? 1 : 2);
-      const list = [...state.animals].sort((a, b) => order(a) - order(b));
-      return `<p class="note">소형견 ${c.ns}/${c.small} · 중·대형견 ${c.nl}/${c.large} · 고양이 ${c.nc}/${c.cat} · 건강 ${D.ADOPT_READY.health}, 신뢰·사회성 ${D.ADOPT_READY.trust} 이상이면 입양을 기다려요. 다이어트 중인 아이는 입양 확률이 절반이에요.</p>
+      const f = UI.tab.animals;
+      const keep = (a) => f === 'all' || (f === 'dog' && a.species === 'dog') || (f === 'cat' && a.species === 'cat') || (f === 'ready' && SIM.isReady(a)) || (f === 'care' && (a.injured || a.health < 50 || (a.allergy && a.allergy.known) || a.fat));
+      const list = [...state.animals].filter(keep).sort((a, b) => order(a) - order(b));
+      return `${tabs('animals', [['all', `전체 ${state.animals.length}`], ['dog', '개'], ['cat', '고양이'], ['ready', '입양 준비'], ['care', '돌봄 필요']])}<p class="note">소형견 ${c.ns}/${c.small} · 중·대형견 ${c.nl}/${c.large} · 고양이 ${c.nc}/${c.cat} · 건강 ${D.ADOPT_READY.health}, 신뢰·사회성 ${D.ADOPT_READY.trust} 이상이면 입양을 기다려요. 다이어트 중인 아이는 입양 확률이 절반이에요.</p>
         ${list.map(animalRow).join('') || '<p class="note">지금은 보호 중인 아이가 없어요.</p>'}`;
     },
     people() {
@@ -577,7 +590,10 @@ ${flags.join(' · ') || '건강한 편이에요'}
     },
     goods() {
       const need = SIM.dailyNeed(state);
-      const rows = Object.entries(D.ITEMS).map(([k, it]) => {
+      // 물품 세분: 개 용품 / 고양이 용품 / 공용(돌봄·입양)
+      const kind = (k) => (['dogFood', 'dietFood', 'pads', 'dogchew'].includes(k) ? 'dog' : ['catFood', 'litter', 'churu'].includes(k) ? 'cat' : 'common');
+      const gt = UI.tab.goods;
+      const rows = Object.entries(D.ITEMS).filter(([k]) => gt === 'all' || kind(k) === gt).map(([k, it]) => {
         const left = SIM.daysLeft(state, k, need);
         const leftTxt = k === 'carriers' ? `${state.inv[k]}개` : left === Infinity ? '쓰는 아이 없음' : `${Math.floor(left)}일치`;
         const low = k === 'carriers' ? state.inv[k] < 1 : left < D.AUTO_BUY.belowDays;
@@ -589,6 +605,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
       const log = state.goodsLog.slice(0, 8).map((g) => `<div class="feed-item good"><time>${SIM.dateLabel(g.day)}</time>${esc(g.text)}</div>`).join('');
       const wish = state.campaigns.some((c) => c.type === 'wishlist' && c.until > state.day);
       return `<label class="toggle"><input type="checkbox" id="autobuy" ${state.autoBuy ? 'checked' : ''}> 자동 구입 (재고 ${D.AUTO_BUY.belowDays}일치 아래면 ${D.AUTO_BUY.targetDays}일치를 10% 비싸게 주문)</label>
+        ${tabs('goods', [['all', '전체'], ['dog', '개 용품'], ['cat', '고양이 용품'], ['common', '공용']])}
         ${rows}
         <div class="card"><b>필요 물품 목록 공유</b><span class="note">${D.CAMPAIGNS.wishlist.desc}</span>
         <div class="btns">${btn('campaign', 'wishlist', wish ? '공유 중' : `공유하기 ${won(D.CAMPAIGNS.wishlist.cost)}`, { disabled: wish || state.money < D.CAMPAIGNS.wishlist.cost })}</div></div>
@@ -622,8 +639,13 @@ ${flags.join(' · ') || '건강한 편이에요'}
             ${btn('celeb', c.id, on ? '함께하는 중' : '섭외', { disabled: on || state.money < c.cost })}</div>`;
         }).join('') + '<p class="note">등장인물은 모두 가상 인물입니다.</p>';
       } else if (t === 'money') {
+        const fc = SIM.monthForecast(state);
+        const fcard = `<div class="card ${fc.net < 0 ? 'alert' : ''}"><b>다음 달 예상 ${fc.net >= 0 ? '+' : ''}${won(fc.net)}원</b>
+          <span class="note">들어올 돈: ${Object.entries(fc.inc).filter(([, v]) => v).map(([k, v]) => `${k} ${won(v)}`).join(' · ') || '없음'}</span>
+          <span class="note">나갈 돈: ${Object.entries(fc.out).filter(([, v]) => v).map(([k, v]) => `${k} ${won(v)}`).join(' · ') || '없음'}</span>
+          <span class="note">입양 책임비·모금·후원 선물처럼 그때그때 생기는 돈은 빼고 셈한 값이에요.</span></div>`;
         const loan = state.loans[0];
-        body = `<div class="card"><b>받는 아이</b><span class="note">${D.SPECIES_POLICIES[state.speciesPolicy || 'both'].desc}</span>
+        body = `${fcard}<div class="card"><b>받는 아이</b><span class="note">${D.SPECIES_POLICIES[state.speciesPolicy || 'both'].desc}</span>
           <div class="tabs">${Object.entries(D.SPECIES_POLICIES).map(([k, sp]) => `<button type="button" data-act="species" data-arg="${k}" aria-pressed="${(state.speciesPolicy || 'both') === k}">${sp.name}</button>`).join('')}</div></div>
           <div class="card"><b>입소 기준</b><span class="note">${D.INTAKE_POLICIES[state.intakePolicy].desc}</span>
           <div class="tabs">${Object.entries(D.INTAKE_POLICIES).map(([k, ip]) => `<button type="button" data-act="policy" data-arg="${k}" aria-pressed="${state.intakePolicy === k}">${ip.name}</button>`).join('')}</div></div>
@@ -680,7 +702,9 @@ ${flags.join(' · ') || '건강한 편이에요'}
     },
     album() {
       if (!state.album.length) return '<p class="note">아직 입양 간 아이가 없어요. 입양 간 아이들의 소식이 1·3·6·12개월 뒤에 도착해요.</p>';
-      return state.album.map((e) => {
+      const at = UI.tab.album;
+      const sp = (e) => (D.BREEDS[e.breed] ? D.BREEDS[e.breed].species : 'dog');
+      return tabs('album', [['all', `전체 ${state.album.length}`], ['dog', '강아지'], ['cat', '고양이']]) + state.album.filter((e) => at === 'all' || sp(e) === at).map((e) => {
         const news = [...e.news].reverse().map((n) => `<span class="sub">${SIM.dateLabel(n.day)} · ${esc(n.text)}</span>`).join('');
         return `<div class="row">${icon('animal', e.breed)}<div class="main"><span class="name">${esc(e.name)}</span>
           <span class="sub">${D.BREEDS[e.breed].name} · ${SIM.dateLabel(e.day)} 입양${e.back ? ' · 다시 돌아왔어요' : ''}</span>
@@ -724,6 +748,9 @@ ${flags.join(' · ') || '건강한 편이에요'}
     const done = (k) => a.touched && a.touched[k] === state.day;
     const item = a.species === 'cat' ? 'churu' : 'dogchew';
     $('sheet-body').innerHTML = `${animalRow(a)}
+      <div class="card"><b>입양 가능성</b>${SIM.isReady(a) ? (() => { const p = SIM.adoptChance(state, a), m = 1 - Math.pow(1 - p, 30);
+        return `<span class="note">한 달 안에 새 가족을 만날 가능성 약 ${Math.round(m * 100)}% (하루 ${(p * 100).toFixed(1)}%)</span><div class="bars">${bar('가능성', Math.round(m * 100))}</div><span class="note">나이·품종·평판·입양 상담실·분위기·계절이 영향을 줘요</span>`; })()
+        : `<span class="note">입양 준비가 끝나야 해요: ${SIM.readyIssues(a).join(' · ')}</span>`}</div>
       <div class="card"><b>지내는 곳</b><span class="note">${home ? D.FACILITIES[home.type].name : '-'}${a.reservedBy ? ` · ${j(esc(a.reservedBy), '이가')} 데리러 오기로 했어요` : ''}</span></div>
       <div class="card"><b>${esc(a.name)}의 이야기</b>${(a.story || []).map((t) => `<span class="note">· ${esc(t)}</span>`).join('') || '<span class="note">아직 이야기가 없어요</span>'}</div>
       <div class="btns">${btn('interact', `${a.id}:pet`, done('pet') ? '쓰다듬기 (오늘 함)' : '쓰다듬기', { disabled: done('pet') })}
