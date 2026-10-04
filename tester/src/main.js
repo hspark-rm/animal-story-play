@@ -2,6 +2,7 @@
 // 지도는 비대칭 아이소메트릭(마름모 바닥)으로 그린다. 논리 격자(x, y)는 그대로 두고 화면 좌표만 바꾼다.
 (function (G) {
   const D = G.DATA, SIM = G.SIM, SPR = G.SPR, UI = G.UI, POSE = G.POSE;
+  const WALK = 0.6;   // 걷는 속도 배율(v0.16): 천천히 보며 쉬는 게임이 되도록 사람·동물 모두 느리게
   // 바닥 격자의 두 축. 건물 그림이 정면 대칭이 아니라 왼쪽 앞에서 본 각도로 그려져 있어서,
   // 그림 속 산책장 울타리에서 잰 기울기에 맞춘다(x축 0.367, y축 0.62, 가로폭 57:43)
   const AX = 56, AXY = 56 * 0.367;   // x가 1 늘 때: 오른쪽으로 AX, 아래로 AXY
@@ -865,7 +866,7 @@
         if (Math.abs(to.x - o.x) > 1.5) o.flipped = to.x < o.x;
         if (Math.abs(to.y - o.y) > 1) o.dirUp = to.y < o.y;
         if (!(o.base && this.applyPerson(o, o.base))) o.scaleX = (o.flipped ? -1 : 1) * Math.abs(o.scaleX);
-        this.tweens.add({ targets: o, x: to.x, y: to.y, duration: Math.max(60, d * msPerPx), ease: pts.length ? 'Linear' : 'Sine.Out',
+        this.tweens.add({ targets: o, x: to.x, y: to.y, duration: Math.max(60, d * msPerPx / WALK), ease: pts.length ? 'Linear' : 'Sine.Out',
           onUpdate: () => o.setDepth(this.charDepth(o.x, o.y)), onComplete: stepTo });
       };
       stepTo();
@@ -1182,7 +1183,7 @@
         const a = spr.animal, bb = a && D.BREEDS[a.breed];
         const pace = a && a.species === 'dog' ? (SIM.dogSize(a) === 'large' ? 1.15 : 0.9) * Math.min(1.3, bb.energy) : 0.7;
         const st = a && POSE ? POSE.stateOf(a) : null;
-        const step = (a && a.fat ? 0.45 : 0.8) * pace * k * (spr.running ? 1.8 : 1) * (st === 'injured' || st === 'pregnant' ? 0.6 : 1);
+        const step = WALK * (a && a.fat ? 0.45 : 0.8) * pace * k * (spr.running ? 1.8 : 1) * (st === 'injured' || st === 'pregnant' ? 0.6 : 1);
         if (this.walk(spr, step)) {
           if (!spr.arrived) { spr.arrived = true; this.onArrive(spr); }
           else if (Math.random() < 0.012) this.pickActivity(spr, home);
@@ -1192,7 +1193,7 @@
       const facs = Object.values(state.facilities);
       for (const spr of Object.values(this.staffSpr)) {
         if (spr.hugging) continue;
-        const done = spr.path && this.walk(spr, 1.1 * k);
+        const done = spr.path && this.walk(spr, WALK * 1.1 * k);
         // 돌보러 간 아이 곁에 닿으면 안아 준다(안을 수 없는 큰 개는 하트만)
         if (done && spr.careFor) {
           const a = this.animalSpr[spr.careFor];

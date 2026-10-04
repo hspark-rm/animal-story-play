@@ -63,7 +63,7 @@
       rb.textContent = `분기 보고서 제출 (D-${left})`;
       rb.classList.toggle('urgent', left <= 3);
     }
-    const f = state.feed[0];
+    const f = state.feed.find((x) => x.cat !== 'adopt');   // 입양 소식은 오른쪽 위 팝업으로 따로 보인다(v0.16)
     if (f && $('ticker-text').textContent !== f.text) {
       $('ticker-text').textContent = f.text;
       $('ticker').classList.remove('flash'); void $('ticker').offsetWidth; $('ticker').classList.add('flash');
@@ -72,6 +72,27 @@
   UI.today = () => (state ? state.day : null);   // 아이 카드 클로즈업이 미용한 날을 비교할 때 쓴다
   UI.setSpeed = (v) => {
     for (const b of document.querySelectorAll('[data-speed]')) b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === v));
+  };
+
+  // 오른쪽 위 작은 알림 카드(v0.16): 입양·입양 소식·편지. 아이 그림과 함께 4.5초 동안 보이고, 한 번에 3장까지
+  UI.notify = (e, title, text, onOpen) => {
+    const box = $('notify');
+    if (!box) return;
+    // SNS 띠 바로 아래에 붙인다(화면 높이·글자 크기에 따라 위쪽 영역 높이가 달라 고정값으로는 가려질 수 있다)
+    const tk = $('ticker'), app = $('app');
+    if (tk && app) box.style.top = `${Math.round(tk.getBoundingClientRect().bottom - app.getBoundingClientRect().top + 8)}px`;
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'notify' + (onOpen ? ' letter' : '');
+    const P = G.POSE;
+    if (P && P.has(e.breed)) { const c = P.portrait(e.breed, onOpen ? 'sit' : 'wag-0', SIM.coatTint({ breed: e.breed, coat: e.coat }), 1); if (c) el.appendChild(c); }
+    else el.insertAdjacentHTML('beforeend', icon('animal', e.breed));
+    el.insertAdjacentHTML('beforeend', `<span><b>${onOpen ? '✉ ' : ''}${title}</b><small>${text}</small></span>`);
+    el.addEventListener('click', () => { el.remove(); if (onOpen) onOpen(); });
+    box.prepend(el);
+    while (box.children.length > 3) box.lastChild.remove();
+    setTimeout(() => el.classList.add('out'), onOpen ? 9000 : 4500);
+    setTimeout(() => el.remove(), onOpen ? 9600 : 5100);
   };
 
   UI.toast = (text) => {
@@ -149,7 +170,10 @@
   /* ---------- 사건 처리 ---------- */
   UI.handle = (events) => {
     for (const e of events || []) {
-      if (e.type === 'toast' || e.type === 'adopt') UI.toast(e.text);
+      if (e.type === 'toast') UI.toast(e.text);
+      else if (e.type === 'adopt') UI.notify(e, '새 가족을 만났어요', e.family ? `${esc(e.family)}의 가족이 됐어요` : esc(e.text));
+      else if (e.type === 'adoptNews') { if (e.milestone || Math.random() < 0.25) UI.notify(e, `${esc(e.name)} 소식`, esc(e.text)); }   // 매일 뜨지 않게: 1주년 소식과 일부만
+      else if (e.type === 'letter') UI.notify(e, '편지가 왔어요', `${esc(e.name)}의 가족이 보냈어요 · 눌러서 읽기`, () => UI.event(`${e.name}의 가족에게서 온 편지`, `${e.body}\n\n— ${e.from}`));
       else if (e.type === 'popup') UI.event(e.title, e.body);
       else if (e.type === 'quarter') showReport(e.report, e.prev, true);
       else if (e.type === 'ending') showEnding(e.report);
@@ -806,7 +830,12 @@ ${flags.join(' · ') || '건강한 편이에요'}
     album() {
 
       const at = UI.tab.album;
-      const top = tabs('album', [['all', `입양 ${state.album.length}`], ['dog', '강아지'], ['cat', '고양이'], ['dex', '도감'], ['ach', '업적'], ['mem', '추억']]);
+      const letters = state.album.flatMap((e) => (e.letters || []).map((l) => ({ ...l, name: e.name, breed: e.breed }))).sort((a, b) => b.day - a.day);
+      const top = tabs('album', [['all', `입양 ${state.album.length}`], ['dog', '강아지'], ['cat', '고양이'], ['letter', `편지 ${letters.length}`], ['dex', '도감'], ['ach', '업적'], ['mem', '추억']]);
+      if (at === 'letter') {
+        return top + (letters.map((l) => `<div class="card letter-card"><b>✉ ${esc(l.name)}의 가족에게서 · ${SIM.dateLabel(l.day)}</b><span class="note letter-body">${esc(l.body)}</span><span class="note">— ${esc(l.from)}</span></div>`).join('')
+          || '<p class="note">입양 간 아이들의 가족이 가끔 편지를 보내요. 입양 한 달쯤 뒤부터 와요.</p>');
+      }
       if (at === 'dex') {
         const dex = state.dex || {};
         const rows = Object.entries(D.BREEDS).filter(([, b]) => b.species !== 'exotic').map(([k, b]) => {
@@ -834,7 +863,13 @@ ${flags.join(' · ') || '건강한 편이에요'}
       }).join('');
     },
     feed() {
-      return state.feed.map((f) => `<div class="feed-item ${f.kind === 'warn' ? 'warn' : f.kind === 'good' ? 'good' : ''}"><time>${SIM.dateLabel(f.day)}</time>${esc(f.text)}</div>`).join('');
+      // 피드 분리(v0.16): 전체 · 입양 · SNS 소식 · 알림
+      const cat = (f) => f.cat || (f.kind === 'warn' ? 'alert' : /입양|새 가족/.test(f.text) ? 'adopt' : 'sns');
+      const n = (c) => state.feed.filter((f) => cat(f) === c).length;
+      const t = UI.tab.feed || 'all';
+      const top = tabs('feed', [['all', '전체'], ['adopt', `입양 ${n('adopt')}`], ['sns', `SNS ${n('sns')}`], ['alert', `알림 ${n('alert')}`]]);
+      if (!UI.tab.feed) UI.tab.feed = 'all';
+      return top + state.feed.filter((f) => t === 'all' || cat(f) === t).map((f) => `<div class="feed-item ${f.kind === 'warn' ? 'warn' : f.kind === 'good' ? 'good' : ''}"><time>${SIM.dateLabel(f.day)}</time>${esc(f.text)}</div>`).join('');
     },
   };
 

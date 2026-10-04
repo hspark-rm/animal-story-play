@@ -151,8 +151,9 @@
   };
 
   /* ---------- 공용 ---------- */
-  function pushFeed(s, text, kind) {
-    s.feed.unshift({ day: s.day, text, kind });
+  // 피드 분류(v0.16): adopt(입양) · sns(소식) · alert(알림). 위쪽 SNS 띠에는 입양을 빼고, 입양은 오른쪽 위 팝업으로 보인다
+  function pushFeed(s, text, kind, cat) {
+    s.feed.unshift({ day: s.day, text, kind, cat: cat || (kind === 'warn' ? 'alert' : 'sns') });
     if (s.feed.length > 60) s.feed.length = 60;
   }
   const idx = (s, x, y) => y * s.gridW + x;
@@ -1025,11 +1026,11 @@
     s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep * (s.siteTrait === 'senior' ? 2 : 1) : 0);
     const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1) * (opts.bonded ? D.VISIT.bondReturn : 1) * (upAny(s, 'adoption', 2) ? 0.7 : 1) * (hasBuff(s, 'giftCampaign') ? 0.5 : 1);
     s.album.unshift({ id: a.id, name: a.name, breed: a.breed, coat: a.coat, day: s.day, ageDays: a.ageDays, news: [], next: 0,
-      returnDay: willReturn ? s.day + randInt(s, 30, 90) : null, closed: a.closed });
+      returnDay: willReturn ? s.day + randInt(s, 30, 90) : null, closed: a.closed, family: opts.family || null, letters: [] });
     if (s.album.length > 80) s.album.length = 80;
-    ev.push({ type: 'adopt', animal: a.id, text: `${a.name} 입양! (책임비 ${won(fee.fee)} · 후원 ${won(gift)})` });
-    if (opts.family) pushFeed(s, `${j(opts.family, '이가')} 교감 끝에 ${a.name}의 가족이 되었다`, 'good');
-    else pushFeed(s, a.closed ? `한때 마음을 닫았던 ${j(a.name, '이가')} 새 가족을 만났다` : SIM.ageGroup(a).key === 'senior' ? `${SIM.ageLabel(a.ageDays)} ${j(a.name, '이가')} 새 가족을 만났다. 노령 입양 이야기가 공유되고 있다` : `${a.name}의 새 가족이 입양 후기를 올렸다`, 'good');
+    ev.push({ type: 'adopt', animal: a.id, breed: a.breed, name: a.name, coat: a.coat, family: opts.family || null, text: `${a.name} 입양! (책임비 ${won(fee.fee)} · 후원 ${won(gift)})` });
+    if (opts.family) pushFeed(s, `${j(opts.family, '이가')} 교감 끝에 ${a.name}의 가족이 되었다`, 'good', 'adopt');
+    else pushFeed(s, a.closed ? `한때 마음을 닫았던 ${j(a.name, '이가')} 새 가족을 만났다` : SIM.ageGroup(a).key === 'senior' ? `${SIM.ageLabel(a.ageDays)} ${j(a.name, '이가')} 새 가족을 만났다. 노령 입양 이야기가 공유되고 있다` : `${a.name}의 새 가족이 입양 후기를 올렸다`, 'good', 'adopt');
     return true;
   }
 
@@ -1394,7 +1395,26 @@
         const text = pick(s, lines);
         e.news.push({ day: s.day, text });
         e.next++;
-        pushFeed(s, `[입양 소식] ${e.name}: ${text}`, 'good');
+        pushFeed(s, `[입양 소식] ${e.name}: ${text}`, 'good', 'adopt');
+        ev.push({ type: 'adoptNews', breed: e.breed, name: e.name, coat: e.coat, text, milestone: months >= 12 });
+      }
+    }
+    // 감사 편지(v0.16): 입양 간 지 minDays일이 지난 가족 중 한 곳이 가끔 편지를 보낸다(아이마다 max통까지)
+    const L = D.LETTER;
+    if (rand(s) < L.perDay) {
+      const ok = s.album.filter((e) => !e.back && s.day - e.day >= L.minDays && (e.letters || []).length < L.max);
+      if (ok.length) {
+        const e = pick(s, ok), t = pick(s, D.LETTERS);
+        const owner = (s.staff.find((x) => x.role === 'owner') || {}).name || '선생님';
+        const body = t.replace(/\{name\|([^}]+)\}/g, (_, pair) => j(e.name, pair)).replaceAll('{name}', e.name)
+          .replaceAll('{shelter}', s.shelterName || '보호소').replaceAll('{owner}', owner);
+        const from = e.family ? `${e.family} 드림` : `${e.name}네 가족 드림`;
+        e.letters = e.letters || [];
+        e.letters.push({ day: s.day, body, from });
+        s.reputation += L.rep;
+        s.stats.letters = (s.stats.letters || 0) + 1;
+        pushFeed(s, `${e.name}의 가족에게서 편지가 왔다`, 'good', 'adopt');
+        ev.push({ type: 'letter', breed: e.breed, name: e.name, coat: e.coat, body, from });
       }
     }
 
