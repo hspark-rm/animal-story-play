@@ -200,6 +200,35 @@
               layout: [['adoption', 3, 1], ['kennel', 1, 3], ['bigkennel', 2, 3], ['cattery', 4, 3]] },
   };
 
+  // 업적(v0.9.2): 달마다 확인. 처음 이루면 평판 +3과 카드
+  DATA.ACHIEVEMENTS = [
+    { id: 'adopt10',  name: '첫 열 가족',       desc: '입양 10마리',            test: (s) => s.stats.adopted >= 10 },
+    { id: 'adopt100', name: '백 번의 배웅',     desc: '입양 100마리',           test: (s) => s.stats.adopted >= 100 },
+    { id: 'adopt500', name: '오백 개의 새 이름', desc: '입양 500마리',           test: (s) => s.stats.adopted >= 500 },
+    { id: 'senior',   name: '늦게 만난 가족',   desc: '노령 아이 입양 10마리',   test: (s) => (s.stats.seniorAdopted || 0) >= 10 },
+    { id: 'opened',   name: '닫힌 마음을 열다', desc: '마음 닫은 아이 5마리가 마음을 엶', test: (s) => (s.stats.opened || 0) >= 5 },
+    { id: 'diet',     name: '가벼워진 발걸음',  desc: '다이어트 성공 10번',     test: (s) => s.stats.diets >= 10 },
+    { id: 'aware80',  name: '달라진 동네',      desc: '인식 80',                 test: (s) => s.awareness >= 80 },
+    { id: 'donor500', name: '오백 명의 응원',   desc: '정기후원자 500명',        test: (s) => s.donors >= 500 },
+    { id: 'dex20',    name: '작은 도감',        desc: '품종 20종을 만남',        test: (s) => Object.keys(s.dex || {}).length >= 20 },
+    { id: 'dexall',   name: '모두를 만났어요',  desc: '품종 37종을 모두 만남',   test: (s) => Object.keys(s.dex || {}).length >= 37 },
+    { id: 'branch',   name: '두 번째 집',       desc: '분점을 열었어요',         test: (s) => Object.keys(s.sites || {}).some((k) => k !== 'main') },
+    { id: 'year5',    name: '다섯 번의 봄',     desc: '5년 운영',                test: (s) => s.day >= 5 * 360 },
+  ];
+  // 직원 성장(v0.9.2): 레벨 상한 10, 연수로 능력치를 올리고, 레벨 6·8·10에 급여 인상을 요청한다
+  DATA.STAFF = { maxLevel: 10, trainCost: 300_000, trainCooldown: 60, raiseLevels: [6, 8, 10], raise: 0.15 };
+  // 계절 행사(v0.9.2): 명절 이동기 유기, 연말 선물 입양 자제, 봄 중성화 주간
+  DATA.SEASON_EVENTS = [
+    { id: 'seollal',  month: 2,  day: 10, title: '설 연휴',         body: '명절 연휴에 맡길 곳이 없어 버려지는 아이가 늘어요.\n열흘 동안 보호 요청이 늘어요.', surge: { days: 10, mult: 1.5 } },
+    { id: 'chuseok',  month: 9,  day: 20, title: '추석 연휴',       body: '긴 연휴 동안 버려지는 아이가 늘어요.\n열흘 동안 보호 요청이 늘어요.', surge: { days: 10, mult: 1.5 } },
+    { id: 'gift',     month: 12, day: 1,  title: '연말 선물 입양',   body: '"선물로 강아지를" 이라는 글이 늘고 있어요. 충동 입양은 파양으로 이어지기 쉬워요.', choice: { cost: 500_000, label: '"선물 입양 자제" 캠페인', aware: 4, returnCut: 0.5, days: 60 } },
+    { id: 'neuter',   month: 4,  day: 1,  title: '봄 중성화 주간',   body: '지자체가 중성화 수술비를 함께 내 줘요.', choice: { cost: 0, label: '참여하기', neuterDiscount: 0.5, days: 14 } },
+  ];
+  // 이웃 보호소와(v0.9.2): 공동 구조 요청, 이송 협약, 연말 '올해의 보호소' 시상
+  DATA.NEIGHBOR = { askChance: 0.08, askN: [3, 6], askRep: 5, pactRep: 400, awardDonors: 20, awardRep: 10 };
+  // 무지개다리(v0.9.2, 비유): 평균 수명을 넘긴 노령 아이가 아주 드물게 조용히 떠난다. 그 아이는 '추억' 앨범에 남는다
+  DATA.RAINBOW = { perDay: 0.0008 };
+
   // 산책장 놀이기구(v0.7): 완공된 산책장 칸 위에만 놓는다(칸당 하나). 개는 그 위를 그대로 지나다닌다
   DATA.YARD_ITEMS = {
     aframe: { name: '어질리티 A프레임', cost: 250_000, mood: 1, h: 34, sprite: 'deco-aframe', train: 0.10, desc: '산책장 훈련 효과 +10%' },

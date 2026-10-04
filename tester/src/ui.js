@@ -235,6 +235,24 @@ ${flags.join(' · ') || '건강한 편이에요'}
           { label: '조용히 지켜보기', ghost: true, run: () => done('skip') }]
         : [{ label: '확인', run: () => done('ok') }];
       choice(e.title, `${icon('event', 'news') || ''}\n${esc(e.body.replace('{who}', e.who))}${esc(p.extra || '')}\n<span class="note">${fx}</span>`, acts);
+    } else if (p.kind === 'raise') {
+      const st = SIM.withSite(state, p.site || 'main', () => state.staff.find((x) => x.id === p.id));
+      if (!st) { done('skip'); return; }
+      choice('급여 인상 요청', `${icon(st.sprite ? 'named' : 'staff', st.sprite || st.role)}\n${j(esc(st.name), '이가')} 레벨 ${st.level}이 되어 급여 인상을 부탁해요.\n지금 월 ${won(SIM.salary(st))}원`, [
+        { label: `올려 주기 (+${Math.round(D.STAFF.raise * 100)}%)`, note: '고마워하며 더 오래 함께해요', run: () => done('accept') },
+        { label: '이번엔 어렵다고 말하기', note: '돌봄 능력치 -1', ghost: true, run: () => done('decline') },
+      ]);
+    } else if (p.kind === 'season') {
+      const e = D.SEASON_EVENTS.find((x) => x.id === p.id), c = e.choice;
+      choice(e.title, `${icon('event', 'news') || ''}\n${esc(e.body)}`, [
+        { label: c.cost ? `${c.label} (${won(c.cost)}원)` : c.label, note: c.aware ? `인식 +${c.aware} · ${c.days}일간 파양 절반` : `${c.days}일간 중성화 비용 절반`, disabled: state.money < c.cost, run: () => done('accept') },
+        { label: '넘어가기', ghost: true, run: () => done('skip') },
+      ]);
+    } else if (p.kind === 'neighbor') {
+      choice('함께 구조해 주세요', `${esc(p.who)}에서 연락이 왔어요.\n큰 구조를 마쳤는데 자리가 모자라 ${p.n}마리를 나눠 맡아 달래요.`, [
+        { label: `${p.n}마리 맡기`, note: `평판 +${D.NEIGHBOR.askRep} · 지금 빈자리 ${SIM.freeSlots(state)}칸(자리가 있는 만큼만 받아요)`, disabled: SIM.freeSlots(state) < 1, run: () => done('accept') },
+        { label: '이번엔 어렵다고 하기', ghost: true, run: () => done('skip') },
+      ]);
     } else if (p.kind === 'memorial') {
       const d = D.DAYS.find((x) => x.id === p.id), P = D.DAY_EVENT.party, Q = D.DAY_EVENT.post;
       const who = d.species === 'cat' ? '고양이' : d.species === 'dog' ? '강아지' : '모든 아이';
@@ -569,6 +587,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
             : `월급 ${won(SIM.salary(st))}원`;
           const actions = [btn('rename', `staff:${st.id}`, '이름 짓기', { ghost: true })];
           if (st.role === 'volunteer' && !st.trained) actions.push(btn('trainVol', st.id, `교육 ${won(D.VOLUNTEER.training)}`, { disabled: state.money < D.VOLUNTEER.training }));
+          if (st.role !== 'volunteer') actions.push(btn('train', st.id, `연수 ${won(D.STAFF.trainCost)}`, { ghost: true, disabled: state.money < D.STAFF.trainCost || (st.trainedDay && state.day - st.trainedDay < D.STAFF.trainCooldown) }));
           if (st.role !== 'owner') actions.push(btn('fire', st.id, '내보내기', { ghost: true }));
           const face = st.role === 'owner' && SPR.has(`player-${st.gender}-0`) ? `<img alt="" src="${SPR.path(`player-${st.gender}-0`)}">` : icon('staff', st.role);
           return `<div class="row ${st.legend ? 'legend' : ''}">${face}
@@ -714,10 +733,29 @@ ${flags.join(' · ') || '건강한 편이에요'}
       return tabs('manage', [['campaign', '캠페인'], ['celeb', '섭외'], ['project', '특수 사업'], ['money', '운영·자금'], ['report', '보고서'], ['rank', '순위']]) + body;
     },
     album() {
-      if (!state.album.length) return '<p class="note">아직 입양 간 아이가 없어요. 입양 간 아이들의 소식이 1·3·6·12개월 뒤에 도착해요.</p>';
+
       const at = UI.tab.album;
+      const top = tabs('album', [['all', `입양 ${state.album.length}`], ['dog', '강아지'], ['cat', '고양이'], ['dex', '도감'], ['ach', '업적'], ['mem', '추억']]);
+      if (at === 'dex') {
+        const dex = state.dex || {};
+        const rows = Object.entries(D.BREEDS).filter(([, b]) => b.species !== 'exotic').map(([k, b]) => {
+          const seen = dex[k], coats = D.COATS[k] ? D.COATS[k].length : 1;
+          return `<div class="row" ${seen ? '' : 'style="opacity:.45"'}>${seen ? icon('animal', k) : ''}<div class="main"><span class="name">${seen ? b.name : '???'}</span><span class="sub">${seen ? `털색 ${seen.length}/${coats}${D.COATS[k] ? ` · ${seen.map((c) => D.COATS[k][c][0]).join(', ')}` : ''}` : '아직 만나지 못했어요'}</span></div></div>`;
+        }).join('');
+        return `${top}<p class="note">만난 품종 ${Object.keys(dex).length}/${Object.values(D.BREEDS).filter((b) => b.species !== 'exotic').length}</p>${rows}`;
+      }
+      if (at === 'ach') {
+        const got = state.achievements || {};
+        return top + D.ACHIEVEMENTS.map((A) => `<div class="card" ${got[A.id] ? '' : 'style="opacity:.5"'}><b>${got[A.id] ? '★ ' : ''}${A.name}</b><span class="note">${A.desc}${got[A.id] ? ` · ${SIM.dateLabel(got[A.id])}` : ''}</span></div>`).join('');
+      }
+      if (at === 'mem') {
+        const m = state.memories || [];
+        return top + (m.length ? m.map((e) => `<div class="row">${icon('animal', e.breed)}<div class="main"><span class="name">${esc(e.name)}</span><span class="sub">${D.BREEDS[e.breed].name} · ${SIM.ageLabel(e.ageDays)} · 함께한 ${e.days}일</span><span class="sub">${SIM.dateLabel(e.day)} 무지개다리를 건넜어요</span></div></div>`).join('')
+          : '<p class="note">아직 떠나보낸 아이가 없어요.</p>');
+      }
       const sp = (e) => (D.BREEDS[e.breed] ? D.BREEDS[e.breed].species : 'dog');
-      return tabs('album', [['all', `전체 ${state.album.length}`], ['dog', '강아지'], ['cat', '고양이']]) + state.album.filter((e) => at === 'all' || sp(e) === at).map((e) => {
+      if (!state.album.length) return top + '<p class="note">아직 입양 간 아이가 없어요. 입양 간 아이들의 소식이 1·3·6·12개월 뒤에 도착해요.</p>';
+      return top + state.album.filter((e) => at === 'all' || sp(e) === at).map((e) => {
         const news = [...e.news].reverse().map((n) => `<span class="sub">${SIM.dateLabel(n.day)} · ${esc(n.text)}</span>`).join('');
         return `<div class="row">${icon('animal', e.breed)}<div class="main"><span class="name">${esc(e.name)}</span>
           <span class="sub">${D.BREEDS[e.breed].name} · ${SIM.dateLabel(e.day)} 입양${e.back ? ' · 다시 돌아왔어요' : ''}</span>
@@ -801,6 +839,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     video: (a) => SIM.shootVideo(state, a),
     goods: () => SIM.developGoods(state),
     branch: (a) => { const [no, t] = a.split(':'); const r = SIM.openBranch(state, Number(no), t); if (r.ok) hooks.onChange(); return r; },
+    train: (a) => SIM.trainStaff(state, Number(a)),
     removeItem: (a) => { const r = SIM.removeYardItem(state, a); if (r.ok) { UI.closeSheet(); hooks.onChange(); } return r; },
     postJob: (a) => SIM.postJob(state, a),
     hire: (a) => { const [role, i] = a.split(':'); const r = SIM.hireCandidate(state, role, Number(i)); if (r.ok) UI.toast(`${r.name}님이 합류했어요`); return r; },
