@@ -18,15 +18,24 @@
     WORLD_W = OX + (COLS + MARGIN) * AX + MARGIN * AY + 40;
     WORLD_H = TOP + (COLS + MARGIN) * AXY + (ROWS + MARGIN) * AYY + 60;
   }
-  const CHAR_DEPTH = 2500;           // 건물(100+y)·울타리 앞에 사람과 동물을 그리는 층
+  // 시점 돌리기(좌우 거울). 건물 뒷면 그림 없이 지도를 좌우로 뒤집어 다른 각도에서 보게 한다.
+  // 보기 설정이라 저장 데이터가 아니라 이 기기의 브라우저에만 남긴다
+  let MIR = false;
+  try { MIR = localStorage.getItem('animal-story-view') === 'mirror'; } catch (e) { /* 막힌 창 */ }
+  const GAP = 0.07;                  // 건물을 바닥 칸보다 이만큼(칸 단위, 사방) 안쪽에 세워 건물 사이에 틈을 둔다
   const DPR = Math.min(window.devicePixelRatio || 1, 3);
 
   // 격자 칸(x, y) 안의 한 점(u, v는 0~1) → 월드 좌표
-  const iso = (x, y) => ({ x: OX + x * AX - y * AY, y: TOP + x * AXY + y * AYY });
+  const iso = (x, y) => { const sx = OX + x * AX - y * AY; return { x: MIR ? WORLD_W - sx : sx, y: TOP + x * AXY + y * AYY }; };
   const tileCenter = (x, y) => iso(x + 0.5, y + 0.5);
+  // 월드 좌표 → 격자 좌표(소수). 앞뒤 가림 판정과 길찾기에 쓴다
+  const toCell = (wx, wy) => {
+    const u = (MIR ? WORLD_W - wx : wx) - OX, v = wy - TOP, det = AX * AYY + AY * AXY;
+    return { x: (u * AYY + AY * v) / det, y: (AX * v - AXY * u) / det };
+  };
   // 월드 좌표 → 격자 칸 (두 축 일차식의 역변환)
   const toTile = (wx, wy) => {
-    const u = wx - OX, v = wy - TOP, det = AX * AYY + AY * AXY;
+    const u = (MIR ? WORLD_W - wx : wx) - OX, v = wy - TOP, det = AX * AYY + AY * AXY;
     return { x: Math.floor((u * AYY + AY * v) / det), y: Math.floor((AX * v - AXY * u) / det) };
   };
 
@@ -67,10 +76,12 @@
   // 크기가 제각각인 그림을 월드 단위 높이(또는 너비)에 맞춘다
   const fitHeight = (spr, h, wide = 1) => { const s = h / spr.height; spr.setScale(s * wide, s); };
   const fitWidth = (spr, w) => spr.setScale(w / spr.width);
+  // 거울 시점에서는 그림을 좌우로 뒤집고 기준점도 반대편으로 옮긴다
+  const originM = (img, ox, oy) => img.setFlipX(MIR).setOrigin(MIR ? 1 - ox : ox, oy);
   const anchorImg = (img, key) => {
     const a = ANCHOR[key];
-    if (a && img.width > 1) img.setOrigin(a[0] / img.width, (a[1] + 1) / img.height);
-    else img.setOrigin(img.fallbackOrigin ?? FRONT, 1);
+    if (a && img.width > 1) originM(img, a[0] / img.width, (a[1] + 1) / img.height);
+    else originM(img, img.fallbackOrigin ?? FRONT, 1);
   };
 
   class Shelter extends Phaser.Scene {
@@ -112,7 +123,7 @@
         for (let y = -MARGIN; y < ROWS + MARGIN; y++) {
           for (let x = -MARGIN; x < COLS + MARGIN; x++) {
             const p = iso(x, y);
-            this.add.image(p.x, p.y, key(x, y)).setOrigin(85 / 198, 1 / 95).setScale(0.5).setDepth(-2);
+            originM(this.add.image(p.x, p.y, key(x, y)), 85 / 198, 1 / 95).setScale(0.5).setDepth(-2);
           }
         }
       }
@@ -211,22 +222,23 @@
       for (const o of this.yardObjs || []) o.destroy();
       this.yardObjs = [];
       const fx = SPR.has('yard-fence-x'), fy = SPR.has('yard-fence-y');
-      const fence = (key, at, front) => {
+      const fence = (key, at, front, cx, cy) => {
         const [ox, oy, len, axisW] = YARD_FENCE[key];
-        const img = this.add.image(at.x, at.y, key).setOrigin(ox, oy).setScale(axisW / len);
-        img.setDepth(front ? 100 + at.y + 1 : 1.6);
+        const img = originM(this.add.image(at.x, at.y, key), ox, oy).setScale(axisW / len);
+        img.setDepth(1.6);
+        if (front) img.box = { x0: cx, y0: cy, x1: cx + 1, y1: cy + 1 };   // 앞 울타리는 건물과 같이 앞뒤를 가린다
         this.yardObjs.push(img);
       };
       for (const g of groups) {
         const inG = new Set(g.cells.map(([x, y]) => `${x},${y}`));
         for (const [x, y] of g.cells) {
           const top = iso(x, y);
-          if (SPR.has('gt-grass-b')) this.yardObjs.push(this.add.image(top.x, top.y, (x + y) % 2 ? 'gt-grass-a' : 'gt-grass-b').setOrigin(85 / 198, 1 / 95).setScale(0.5).setTint(0xd8f2a0).setDepth(1.4));
+          if (SPR.has('gt-grass-b')) this.yardObjs.push(originM(this.add.image(top.x, top.y, (x + y) % 2 ? 'gt-grass-a' : 'gt-grass-b'), 85 / 198, 1 / 95).setScale(0.5).setTint(0xd8f2a0).setDepth(1.4));
           if (!fx || !fy) continue;
           if (!inG.has(`${x},${y - 1}`)) fence('yard-fence-x', iso(x, y), false);          // 뒤 오른쪽 변
           if (!inG.has(`${x - 1},${y}`)) fence('yard-fence-y', iso(x, y + 1), false);      // 뒤 왼쪽 변
-          if (!inG.has(`${x},${y + 1}`)) fence('yard-fence-x', iso(x, y + 1), true);       // 앞 왼쪽 변
-          if (!inG.has(`${x + 1},${y}`)) fence('yard-fence-y', iso(x + 1, y + 1), true);   // 앞 오른쪽 변
+          if (!inG.has(`${x},${y + 1}`)) fence('yard-fence-x', iso(x, y + 1), true, x, y);       // 앞 왼쪽 변
+          if (!inG.has(`${x + 1},${y}`)) fence('yard-fence-y', iso(x + 1, y + 1), true, x, y);   // 앞 오른쪽 변
         }
       }
     }
@@ -315,26 +327,28 @@
       for (const f of Object.values(state.facilities)) {
         let key = facKey(f);
         let n = SIM.size(f.type);
-        let front = iso(f.x + n, f.y + n);   // 바닥의 앞 꼭짓점
-        let width = TILE_W * n, originX = FRONT, hidden = yardBig.has(f.id);
+        let box = { x0: f.x, y0: f.y, x1: f.x + n, y1: f.y + n };
+        let originX = FRONT, hidden = yardBig.has(f.id);
         const kr = kRole[f.id];
         if (kr && kr.g.len > 1) {
           const { g } = kr, L = g.len, mk = `iso-${g.type}-${L}${g.axis}`;
           if (!kr.lead) hidden = true;
           else if (SPR.has(mk)) {
             key = mk;
-            front = g.axis === 'x' ? iso(g.x + L, g.y + 1) : iso(g.x + 1, g.y + L);
-            width = g.axis === 'x' ? L * AX + AY : AX + L * AY;
-            originX = g.axis === 'x' ? (L * AX) / width : AX / width;
+            box = g.axis === 'x' ? { x0: g.x, y0: g.y, x1: g.x + L, y1: g.y + 1 } : { x0: g.x, y0: g.y, x1: g.x + 1, y1: g.y + L };
+            originX = g.axis === 'x' ? (L * AX) / (L * AX + AY) : AX / (AX + L * AY);
           }
         }
+        // 바닥보다 GAP만큼 안쪽에 세운다: 앞 꼭짓점을 안으로 당기고 폭을 줄인다
+        const front = iso(box.x1 - GAP, box.y1 - GAP);
+        const width = (box.x1 - box.x0 - 2 * GAP) * AX + (box.y1 - box.y0 - 2 * GAP) * AY;
         const sig = `${key}|${f.x},${f.y}|${hidden}`;
         const base = iso(f.x + n / 2, f.y + n / 2);
         let img = this.facLayer[f.id];
         // 자리·그림이 바뀐 건물(옮김, 이어 짓기)은 다시 세운다
         if (img && img.sig !== sig && !(f.buildLeft === 0 && img.texture.key === 'iso-construction')) { if (img.label) img.label.destroy(); img.destroy(); img = null; delete this.facLayer[f.id]; }
         if (!img) {
-          img = this.add.image(front.x, front.y + 1, key).setOrigin(originX, 1).setDepth(100 + front.y);
+          img = this.add.image(front.x, front.y + 1, key).setOrigin(originX, 1);
           img.fallbackOrigin = originX;
           anchorImg(img, key);
           img.sig = sig;
@@ -352,11 +366,14 @@
           this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 260, ease: 'Back.Out' });
           this.floatText(base.x, base.y - 60, '완공!', '#e8743b');
         }
+        img.box = box;
         if (f.buildLeft) {
           if (!img.label) img.label = this.add.text(base.x, base.y - 60 * n, '', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '22px', color: '#3b2a20', stroke: '#ffffff', strokeThickness: 5 }).setOrigin(0.5).setDepth(5000);
           img.label.setText(`공사 ${f.buildLeft}일`);
         } else if (img.label) { img.label.destroy(); img.label = null; }
       }
+      this.sortDepths();
+      this.buildWalkGrid();
       const alive = new Map(state.animals.map((a) => [a.id, a]));
       for (const [id, spr] of Object.entries(this.animalSpr)) {
         if (!alive.has(Number(id))) { this.leave(spr); delete this.animalSpr[id]; }
@@ -422,21 +439,21 @@
     // 동물 하루 일과(화면만): 산책·산책장 훈련·장난감 놀이·집 앞 쉬기. 물품이 있어야 놀이가 나온다
     pickActivity(spr, home) {
       const a = spr.animal, inv = state.inv, r = Math.random();
-      spr.arrived = false;
       spr.act = 'home';
-      spr.target = this.spotIn(home);
-      if (!a) return;
+      let to = this.spotIn(home);
+      if (!a) { this.go(spr, to); return; }
       if (a.species === 'dog') {
         const yards = Object.values(state.facilities).filter((f) => f.type === 'yard' && !f.buildLeft);
         const energy = D.BREEDS[a.breed].energy;
         if (yards.length && r < 0.3) {
           const y = yards.reduce((m, f) => (Math.hypot(f.x - home.x, f.y - home.y) < Math.hypot(m.x - home.x, m.y - home.y) ? f : m));
-          spr.act = 'train'; spr.target = iso(y.x + 0.2 + Math.random() * 0.6, y.y + 0.2 + Math.random() * 0.6);
+          spr.act = 'train'; to = iso(y.x + 0.2 + Math.random() * 0.6, y.y + 0.2 + Math.random() * 0.6);
         } else if (r < 0.3 + 0.25 * energy) {
           const t = this.walkSpot(a, home);
-          if (t) { spr.act = 'walk'; spr.target = t; }
+          if (t) { spr.act = 'walk'; to = t; }
         } else if (r < 0.95 && ((inv.toys || 0) > 0 || (inv.dogchew || 0) > 0)) spr.act = 'play';
       } else if (a.species === 'cat' && r < 0.3 && ((inv.toys || 0) > 0 || (inv.churu || 0) > 0)) spr.act = 'play';
+      this.go(spr, to);
     }
 
     // 산책 범위: 활동량 × 몸집 × 나이·체형(DATA.WALK). 부지 안, 건물이 없는 칸(산책장은 지나가도 된다)
@@ -470,7 +487,7 @@
     // 장난감·개껌·츄르 놀이. 물품 그림을 잠깐 띄운다
     play(spr) {
       const a = spr.animal, inv = state.inv, dir = spr.flipped ? -1 : 1;
-      const prop = (key, x, y) => { const img = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(spr.depth + 1); fitHeight(img, 15); return img; };
+      const prop = (key, x, y) => { const img = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(spr.depth + 0.2); fitHeight(img, 15); return img; };
       const opts = a.species === 'cat' ? ['toys', 'churu'] : ['toys', 'dogchew'];
       const have = opts.filter((k) => (inv[k] || 0) > 0 && SPR.has(`item-${k}`));
       if (!have.length) return;
@@ -480,7 +497,7 @@
         const ball = prop('item-toys', spr.x + dir * 8, spr.y);
         const to = { x: spr.x + dir * (40 + Math.random() * 30), y: spr.y + (Math.random() - 0.5) * 24 };
         this.tweens.add({ targets: ball, x: to.x, y: to.y, duration: 650, ease: 'Quad.Out' });
-        spr.act = 'fetch'; spr.target = to; spr.arrived = false;
+        spr.act = 'fetch'; this.go(spr, to, true);
         spr.onFetch = () => { ball.destroy(); this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); };
         return;
       }
@@ -491,7 +508,7 @@
           fitHeight(yarn, 11);
           const to = { x: spr.x + dir * (22 + Math.random() * 16), y: spr.y + (Math.random() - 0.5) * 14 };
           this.tweens.add({ targets: yarn, x: to.x, y: to.y, angle: dir * 360, duration: 700, ease: 'Quad.Out' });
-          spr.act = 'fetch'; spr.target = { x: to.x - dir * 8, y: to.y }; spr.arrived = false;
+          spr.act = 'fetch'; this.go(spr, { x: to.x - dir * 8, y: to.y }, true);
           spr.onFetch = () => {
             this.tweens.add({ targets: yarn, x: yarn.x + dir * 6, duration: 140, yoyo: true, repeat: 3, onComplete: () => yarn.destroy() });
             this.floatText(spr.x, spr.y - 30, '♥', '#e85a7a');
@@ -517,8 +534,24 @@
 
     leave(spr) {
       this.floatText(spr.x, spr.y - 40, '♥', '#e85a7a');
-      const exit = tileCenter(COLS + 1, ROAD);
-      this.tweens.add({ targets: spr, x: exit.x, y: exit.y, duration: 1600, onComplete: () => spr.destroy() });
+      const from = { x: spr.px ?? spr.x, y: spr.py ?? spr.y };
+      spr.x = from.x; spr.y = from.y;
+      this.tweenPath(spr, this.route(from, tileCenter(COLS + 1, ROAD)), 6, () => spr.destroy());
+    }
+
+    // 경유점을 차례로 트윈으로 걷는다(방문자, 떠나는 아이). msPerPx = 1px 가는 데 걸리는 시간
+    tweenPath(o, pts, msPerPx, done) {
+      const stepTo = () => {
+        const to = pts.shift();
+        if (!to || !o.active) { o.moving = false; if (done) done(); return; }
+        const d = Math.hypot(to.x - o.x, to.y - o.y);
+        o.moving = true;
+        if (Math.abs(to.x - o.x) > 1.5) o.flipped = to.x < o.x;
+        o.scaleX = (o.flipped ? -1 : 1) * Math.abs(o.scaleX);
+        this.tweens.add({ targets: o, x: to.x, y: to.y, duration: Math.max(60, d * msPerPx), ease: pts.length ? 'Linear' : 'Sine.Out',
+          onUpdate: () => o.setDepth(this.charDepth(o.x, o.y)), onComplete: stepTo });
+      };
+      stepTo();
     }
 
     floatText(x, y, text, color) {
@@ -527,33 +560,51 @@
       this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: 1400, onComplete: () => t.destroy() });
     }
 
-    // 방문자: 길에서 걸어와 아이 곁에서 하트를 띄우고 돌아간다(입양되면 아이와 함께 떠난다)
-    visit(animalId) {
+    // 방문자: 가족이 길에서 정문(앞 흙길 가운데)으로 들어와 아이에게 걸어가 교감하고, 다시 정문으로 나간다
+    visit(animalId, familyName) {
       const spr = this.animalSpr[animalId];
-      const base = Math.random() < 0.5 ? 'player-m' : 'player-f';
-      if (!spr || !SPR.has(`${base}-0`)) return;
-      const tints = [0xffffff, 0xffe0e0, 0xe0f0ff, 0xfff0c8, 0xe8ffe0];
-      const start = tileCenter(Math.floor(Math.random() * COLS), ROAD);
-      const v = this.add.sprite(start.x, start.y, `${base}-0`).setOrigin(0.5, 1).setTint(tints[Math.floor(Math.random() * tints.length)]);
-      v.base = base;
-      fitHeight(v, 52);
-      (this.visitors = (this.visitors || []).filter((x) => x.active)).push(v);
-      spr.hold = this.time.now + 9000;   // 교감하는 동안 제자리에 있는다
-      const goal = { x: spr.x + 22, y: spr.y + 6 };
-      const walk = (to, done) => {
-        const d = Math.hypot(to.x - v.x, to.y - v.y);
-        v.moving = true; v.flipped = to.x < v.x; v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX);
-        this.tweens.add({ targets: v, x: to.x, y: to.y, duration: d * 9, onUpdate: () => v.setDepth(CHAR_DEPTH + v.y + 2), onComplete: () => { v.moving = false; done(); } });
-      };
-      walk(goal, () => {
-        v.flipped = true; v.scaleX = -Math.abs(v.scaleX);
-        for (let i = 0; i < 3; i++) this.time.delayedCall(i * 700, () => { if (spr.active) this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); });
-        this.time.delayedCall(2600, () => walk(tileCenter(COLS + 1, ROAD), () => v.destroy()));
+      if (!spr) return;
+      const fam = D.VISIT.families.find((f) => f.name === familyName);
+      let who = (fam && fam.who) || [];
+      who = who.filter((k) => SPR.has(`${k}-0`));
+      if (!who.length) who = [Math.random() < 0.5 ? 'player-m' : 'player-f'];
+      const street = iso(COLS / 2 + 0.5, ROWS + 1.5), gate = tileCenter(Math.floor(COLS / 2), ROAD);
+      const exit = iso(COLS + 1.5, ROWS + 1.5);
+      spr.hold = this.time.now + 14000;   // 가족이 올 때까지 기다린다
+      const home = { x: spr.px ?? spr.x, y: spr.py ?? spr.y };
+      const people = who.map((key, i) => {
+        const v = this.add.sprite(street.x - i * 14, street.y + i * 4, `${key}-0`).setOrigin(0.5, 1).setScale(0.72);
+        v.base = key;
+        (this.visitors = (this.visitors || []).filter((x) => x.active)).push(v);
+        return v;
       });
+      const offset = (pts, i) => pts.map((p) => ({ x: p.x - i * 14, y: p.y + i * 5 }));
+      let arrived = 0;
+      people.forEach((v, i) => {
+        const path = [gate, ...this.route(gate, { x: home.x + 24, y: home.y + 8 })];
+        this.time.delayedCall(i * 380, () => this.tweenPath(v, offset(path, i), 10, () => { if (++arrived === people.length) bond(); }));
+      });
+      const bond = () => {
+        // 교감: 쪼그려 앉아 쓰다듬고, 아이는 폴짝, 말풍선과 하트
+        people.forEach((v, i) => {
+          v.flipped = v.x > (spr.px ?? spr.x); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX);
+          this.tweens.add({ targets: v, scaleY: v.scaleY * 0.88, duration: 260, yoyo: true, repeat: 2, delay: i * 200 });
+          this.time.delayedCall(300 + i * 700, () => this.floatText(v.x, v.y - 58, D.VISIT.talk[Math.floor(Math.random() * D.VISIT.talk.length)], '#3b6fd0'));
+        });
+        if (spr.active) {
+          this.tweens.add({ targets: spr, y: spr.y - 9, duration: 170, yoyo: true, repeat: 3, delay: 400 });
+          for (let i = 0; i < 3; i++) this.time.delayedCall(500 + i * 650, () => { if (spr.active) this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); });
+        }
+        this.time.delayedCall(3200, () => {
+          spr.hold = 0;
+          people.forEach((v, i) => this.time.delayedCall(i * 300, () =>
+            this.tweenPath(v, [...this.route(v, gate), street, exit], 10, () => v.destroy())));
+        });
+      };
     }
 
     flipFrames() {
-      for (const v of this.visitors || []) if (v.active) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); fitHeight(v, 52); if (v.flipped) v.scaleX = -Math.abs(v.scaleX); }
+      for (const v of this.visitors || []) if (v.active) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX); }
       for (const spr of Object.values(this.animalSpr)) if (spr.active && spr.animal) this.sizeAnimal(spr);
       for (const spr of Object.values(this.staffSpr)) {
         const k = staffKey(spr.staff, spr.moving ? this.frame : 0);
@@ -561,16 +612,120 @@
       }
     }
 
-    wander(spr, target, step) {
-      const dx = target.x - spr.x, dy = target.y - spr.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 2) { spr.moving = false; return true; }
-      spr.moving = true;
-      const k = Math.min(dist, step);
-      spr.x += dx / dist * k; spr.y += dy / dist * k;
-      spr.flipped = dx < 0;
+    // 건물·앞 울타리의 앞뒤 순서: 바닥 상자로 위상 정렬한다(긴 건물도 맞게 가린다).
+    // A가 B의 뒤 = A의 앞쪽 끝이 B의 뒤쪽 끝보다 뒤(x 또는 y). 서로 대각선이면 겹치지 않으므로 순서를 두지 않는다
+    sortDepths() {
+      const nodes = [...Object.values(this.facLayer).filter((o) => o.visible), ...(this.yardObjs || []).filter((o) => o.box)];
+      const behind = (a, b) => (a.box.x1 <= b.box.x0 + 1e-6 || a.box.y1 <= b.box.y0 + 1e-6);
+      const n = nodes.length, indeg = new Array(n).fill(0), next = nodes.map(() => []);
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        if (i === j || !behind(nodes[i], nodes[j]) || behind(nodes[j], nodes[i])) continue;
+        next[i].push(j); indeg[j]++;
+      }
+      const key = (o) => o.box.x1 + o.box.y1;
+      const ready = nodes.map((_, i) => i).filter((i) => !indeg[i]);
+      const order = [];
+      while (ready.length) {
+        ready.sort((p, q) => key(nodes[p]) - key(nodes[q]));
+        const i = ready.shift();
+        order.push(i);
+        for (const j of next[i]) if (!--indeg[j]) ready.push(j);
+      }
+      for (let i = 0; i < n; i++) if (!order.includes(i)) order.push(i);   // 순환이 있으면 앞 꼭짓점 순서로
+      order.forEach((i, r) => nodes[i].setDepth(100 + r * 4));
+      this.sorted = nodes.map((o) => ({ o, box: o.box, b: o.getBounds() }));
+    }
+
+    // 사람·동물의 깊이: 화면에서 겹치는 건물 중 뒤에 있는 것보다 앞, 앞에 있는 것보다 뒤
+    charDepth(x, y) {
+      const c = toCell(x, y);
+      let lo = 99, hi = Infinity;
+      for (const { o, box, b } of this.sorted || []) {
+        if (x < b.left - 8 || x > b.right + 8 || y < b.top || y - 50 > b.bottom) continue;
+        if (c.x >= box.x1 - 1e-3 || c.y >= box.y1 - 1e-3) lo = Math.max(lo, o.depth);
+        else if (c.x <= box.x0 + 1e-3 || c.y <= box.y0 + 1e-3) hi = Math.min(hi, o.depth);
+        else lo = Math.max(lo, o.depth);
+      }
+      const d = lo + 1 + y * 1e-4;
+      return d < hi ? d : hi - 1 + y * 1e-4;
+    }
+
+    // 걸을 수 있는 칸: 부지 안(맨 아래 흙길 포함)에서 건물이 없는 칸과 산책장
+    buildWalkGrid() {
+      const g = new Uint8Array(COLS * ROWS);
+      for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+        const f = SIM.facilityAt(state, x, y);
+        g[y * COLS + x] = !f || (f.type === 'yard' && !f.buildLeft) ? 1 : 0;
+      }
+      this.walkGrid = g;
+    }
+
+    // 칸 단위 길찾기(너비 우선, 8방향, 건물 모서리는 비스듬히 못 지나감) → 꺾이는 곳만 남긴 경유점
+    route(from, to) {
+      const W = this.walkGrid;
+      const a = toCell(from.x, from.y), b = toCell(to.x, to.y);
+      const cl = (v, m) => Math.max(0, Math.min(m - 1, Math.floor(v)));
+      const sx = cl(a.x, COLS), sy = cl(a.y, ROWS), tx = cl(b.x, COLS), ty = cl(b.y, ROWS);
+      if (!W || (sx === tx && sy === ty)) return [to];
+      const ok = (x, y) => x >= 0 && y >= 0 && x < COLS && y < ROWS && (W[y * COLS + x] || (x === tx && y === ty));
+      const prev = new Int32Array(COLS * ROWS).fill(-1), start = sy * COLS + sx, goal = ty * COLS + tx;
+      prev[start] = start;
+      const q = [start];
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+      while (q.length && prev[goal] < 0) {
+        const i = q.shift(), x = i % COLS, y = (i / COLS) | 0;
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy, j = ny * COLS + nx;
+          if (!ok(nx, ny) || prev[j] >= 0) continue;
+          if (dx && dy && (!ok(x + dx, y) || !ok(x, y + dy))) continue;
+          prev[j] = i; q.push(j);
+        }
+      }
+      if (prev[goal] < 0) return [to];
+      const cells = [];
+      for (let i = goal; i !== start; i = prev[i]) cells.push(i);
+      cells.reverse();
+      cells.pop();                                   // 마지막 칸 대신 정확한 목표점으로 간다
+      const pts = [];
+      let pdx = null, pdy = null, px = sx, py = sy;
+      cells.forEach((i, k) => {
+        const x = i % COLS, y = (i / COLS) | 0, dx = x - px, dy = y - py;
+        const nextI = cells[k + 1];
+        const ndx = nextI === undefined ? null : (nextI % COLS) - x, ndy = nextI === undefined ? null : ((nextI / COLS) | 0) - y;
+        if (ndx !== dx || ndy !== dy) pts.push(iso(x + 0.35 + Math.random() * 0.3, y + 0.35 + Math.random() * 0.3));   // 꺾이는 칸
+        px = x; py = y; pdx = dx; pdy = dy;
+      });
+      pts.push(to);
+      return pts;
+    }
+
+    go(spr, to, direct) {
+      spr.path = direct ? [to] : this.route({ x: spr.px ?? spr.x, y: spr.py ?? spr.y }, to);
+      spr.arrived = false;
+    }
+
+    // 경유점을 따라 걷는다. 출발·도착에서 속도를 부드럽게 올리고 줄이며, 걸을 때 살짝 통통 튄다
+    walk(spr, base) {
+      if (spr.px === undefined) { spr.px = spr.x; spr.py = spr.y; spr.v = 0; spr.phase = 0; }
+      const path = spr.path;
+      if (!path || !path.length) { spr.moving = false; spr.v = 0; this.place(spr); return true; }
+      const t = path[0], dx = t.x - spr.px, dy = t.y - spr.py, dist = Math.hypot(dx, dy);
+      const want = path.length === 1 ? base * Math.min(1, 0.3 + dist / 14) : base;
+      spr.v += (want - spr.v) * 0.18;
+      if (dist <= Math.max(spr.v, 0.5)) { spr.px = t.x; spr.py = t.y; path.shift(); }
+      else { spr.px += dx / dist * spr.v; spr.py += dy / dist * spr.v; }
+      spr.moving = path.length > 0;
+      if (Math.abs(dx) > 1.5) spr.flipped = dx < 0;            // 거의 수직으로 갈 때는 방향을 바꾸지 않는다
       spr.scaleX = (spr.flipped ? -1 : 1) * Math.abs(spr.scaleX);
-      return false;
+      spr.phase += spr.v * 0.32;
+      this.place(spr);
+      return !path.length;
+    }
+
+    place(spr) {
+      const bob = spr.moving ? Math.abs(Math.sin(spr.phase)) * 2.4 : 0;
+      spr.x = spr.px; spr.y = spr.py - bob;
+      spr.setDepth(this.charDepth(spr.px, spr.py));
     }
 
     update(_, dt) {
@@ -588,27 +743,28 @@
       UI.hud();
 
       const k = Math.max(1, speed) * dt / 16;
+      // 건물 화면 범위는 세워질 때 커지는 연출이 있어 가끔 다시 잰다
+      if (this.sorted && (this.boundsTick = (this.boundsTick || 0) + 1) % 45 === 0) for (const n of this.sorted) if (n.o.active) n.b = n.o.getBounds();
       for (const spr of Object.values(this.animalSpr)) {
         const home = state.facilities[spr.homeId];
         if (!home || !spr.active) continue;
-        if (spr.hold && spr.hold > this.time.now) { spr.moving = false; spr.setDepth(CHAR_DEPTH + spr.y + 1); continue; }
-        if (!spr.target) this.pickActivity(spr, home);
+        if (spr.hold && spr.hold > this.time.now) { spr.moving = false; spr.setDepth(this.charDepth(spr.x, spr.py ?? spr.y)); continue; }
+        if (!spr.path) this.pickActivity(spr, home);
         const a = spr.animal, bb = a && D.BREEDS[a.breed];
         const pace = a && a.species === 'dog' ? (SIM.dogSize(a) === 'large' ? 1.15 : 0.9) * Math.min(1.3, bb.energy) : 0.7;
         const step = (a && a.fat ? 0.45 : 0.8) * pace * k;
-        if (this.wander(spr, spr.target, step)) {
+        if (this.walk(spr, step)) {
           if (!spr.arrived) { spr.arrived = true; this.onArrive(spr); }
           else if (Math.random() < 0.012) this.pickActivity(spr, home);
         }
-        spr.setDepth(CHAR_DEPTH + spr.y + 1);   // 사람·동물은 건물보다 늘 앞에 그린다
       }
       const facs = Object.values(state.facilities);
       for (const spr of Object.values(this.staffSpr)) {
-        if (!spr.target || (this.wander(spr, spr.target, 1.1 * k) && Math.random() < 0.01)) {
+        if (!spr.path || (this.walk(spr, 1.1 * k) && Math.random() < 0.01)) {
           const f = facs[Math.floor(Math.random() * facs.length)];
-          spr.target = f ? iso(f.x + 0.5, Math.min(f.y + 1.2, ROAD + 0.5)) : tileCenter(COLS / 2, ROAD);
+          const n = f ? SIM.size(f.type) : 1;
+          this.go(spr, f ? iso(f.x + n * (0.2 + Math.random() * 0.6), Math.min(f.y + n + 0.3, ROAD + 0.5)) : tileCenter(COLS / 2, ROAD));
         }
-        spr.setDepth(CHAR_DEPTH + spr.y + 2);
       }
     }
 
@@ -713,7 +869,12 @@
     onModal() { UI.setSpeed(speed); },
     onBuildMode: setBuild,
     onMoveMode: setMove,
-    onVisit(id) { if (scene() && scene().visit) scene().visit(id); },
+    onRotate() {
+      MIR = !MIR;
+      try { localStorage.setItem('animal-story-view', MIR ? 'mirror' : 'normal'); } catch (e) { /* 막힌 창 */ }
+      if (scene()) scene().scene.restart();
+    },
+    onVisit(id, family) { if (scene() && scene().visit) scene().visit(id, family); },
     onChange() { if (scene()) scene().sync(false); if (state) UI.save(state); },
     onRelayout() { if (scene()) scene().scene.restart(); },
     onNewGame() {

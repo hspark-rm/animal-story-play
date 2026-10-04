@@ -245,3 +245,14 @@ table.ledger tr.total td { font-weight: 700; border-top: 2px solid var(--edge); 
 .ebar small { color: var(--ink-2, #7a6a5a); }
 .voice { display: flex; gap: 10px; align-items: center; white-space: normal; }
 #modal-body .voice img { width: 48px; height: 48px; flex: none; align-self: center; }
+
+/* 시작 화면: 받는 아이 고르기 */
+.genders.species { grid-template-columns: 1fr 1fr 1fr; }
+.genders.species img { height: 40px; }
+.setup-q { margin: 4px 0 0; font-family: var(--display); font-size: 16px; }
+.setup-q small { display: block; font-family: var(--body); font-size: 12px; color: var(--ink-2); }
+.end-stars b { color: var(--accent); letter-spacing: 2px; }
+
+/* 시점 돌리기 버튼: 지도 오른쪽 아래 */
+#rotate-btn { position: absolute; right: 10px; bottom: 10px; width: 44px; height: 44px; border-radius: 50%; border: 3px solid var(--edge); background: var(--panel); color: var(--ink); font-size: 22px; line-height: 1; box-shadow: 0 3px 0 rgba(40, 28, 20, .3); z-index: 3; }
+#rotate-btn:active { transform: translateY(2px); box-shadow: none; }

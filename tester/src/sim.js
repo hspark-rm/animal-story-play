@@ -71,7 +71,7 @@
       stats: { rescued: 0, adopted: 0, transferred: 0, returned: 0, bites: 0, diets: 0, declined: 0, born: 0, placed: 0, doorstep: 0, donorsPeak: C.donors },
       feed: [], usedNames: [],
       inv: { ...D.START_ITEMS }, autoBuy: false, goodsLog: [], shortNotice: {},
-      feeLevel: 1, loans: [], loanDefault: false, intakePolicy: 'ask', resolve: !!C.resolve,
+      feeLevel: 1, loans: [], loanDefault: false, intakePolicy: 'ask', speciesPolicy: opts.species || 'both', resolve: !!C.resolve,
       autoReport: false, reportDue: null, level: SIM.levelFor(C.reputation), autoMed: true,
       corporate: null, corporateOffered: false, subsidy: false, quotaLeft: 0,
       jobPosts: {}, volPost: null, applicants: [], hiredNamed: [],
@@ -83,12 +83,11 @@
     // 시작은 봉사자가 아니라 '나'
     s.staff.push({ id: s.nextId++, name: s.player.name, role: 'owner', gender: s.player.gender, level: 1, exp: 0, stats: { ...D.OWNER.stats[s.career] } });
     if (!s.tutorial) {
-      placeFacility(s, 'bigkennel', 3, 4);
-      placeFacility(s, 'kennel', 3, 5);
-      placeFacility(s, 'cattery', 5, 5);
+      if (wants(s, 'dog')) { placeFacility(s, 'bigkennel', 3, 4); placeFacility(s, 'kennel', 3, 5); }
+      if (wants(s, 'cat')) placeFacility(s, 'cattery', 5, 5);
       if (C.extra.includes('yard')) placeFacility(s, 'yard', 2, 5);
-      intakeAnimal(s, 'jindo', true);
-      intakeAnimal(s, 'korshort', true);
+      if (wants(s, 'dog')) intakeAnimal(s, 'jindo', true);
+      if (wants(s, 'cat')) intakeAnimal(s, 'korshort', true);
       pushFeed(s, `${j(s.shelterName, '이가')} 문을 열었다. 첫 식구는 둘.`, 'calm');
     } else {
       pushFeed(s, `${s.shelterName} 자리에 빈 땅이 생겼다. 무엇부터 지을까?`, 'calm');
@@ -112,6 +111,7 @@
   SIM.migrate = (s) => {
     if (s.level == null) s.level = SIM.levelFor(s.reputation);
     if (s.intakePolicy == null) s.intakePolicy = 'ask';
+    if (!s.speciesPolicy) s.speciesPolicy = 'both';
     if (s.resolve == null) s.resolve = !!D.CAREERS[s.career || 'ordinary'].resolve;
     if (s.autoReport == null) s.autoReport = false;
     if (s.reportDue === undefined) s.reportDue = null;
@@ -364,8 +364,16 @@
   }
   SIM.trendPhase = trendPhase;
 
+  const wants = (s, species) => !s.speciesPolicy || s.speciesPolicy === 'both' || s.speciesPolicy === species;
+  SIM.wants = wants;
+  // 고른 종의 길고양이·유기견 비중(품종 가중치 합 기준)
+  SIM.speciesShare = (s) => {
+    if (!s.speciesPolicy || s.speciesPolicy === 'both') return 1;
+    const all = Object.values(D.BREEDS).filter((b) => b.species !== 'exotic').reduce((t, b) => t + b.base, 0);
+    return Object.values(D.BREEDS).filter((b) => b.species === s.speciesPolicy).reduce((t, b) => t + b.base, 0) / all;
+  };
   function chooseBreed(s) {
-    const keys = Object.keys(D.BREEDS);
+    const keys = Object.keys(D.BREEDS).filter((k) => D.BREEDS[k].species !== 'exotic' && wants(s, D.BREEDS[k].species));
     const wave = trendPhase(s) === 'wave';
     return weighted(s, keys, (k) => D.BREEDS[k].base + (wave && k === s.trend.breed ? D.TREND.waveWeight * s.trend.intensity : 0));
   }
@@ -673,7 +681,7 @@
     s.visitNext = s.day + V.cooldown;
     a.trust = Math.min(100, a.trust + V.trustGain);
     a.social = Math.min(100, a.social + V.socialGain);
-    ev.push({ type: 'visit', animal: a.id });
+    ev.push({ type: 'visit', animal: a.id, family: fam.name });
     if (rand(s) < V.wantRate * SIM.ageAdopt(a) * (fam.likes === SIM.ageGroup(a).key ? V.likeBoost : 1)) {
       s.pending.push({ kind: 'visit', animal: a.id, family: fam.name, act, ready: SIM.isReady(a), issues: SIM.readyIssues(a) });
     } else {
@@ -856,7 +864,7 @@
     // 길에서 오는 아이들 + 지자체 위탁 의무 수용
     let pIn = 0.1 + (100 - s.awareness) / 100 * 0.18;
     if (phase === 'wave') pIn += 0.2 * s.trend.intensity;
-    pIn *= D.INTAKE_RATE;
+    pIn *= D.INTAKE_RATE * SIM.speciesShare(s);
     // 튜토리얼 중(첫 식구가 오기 전)에는 길에서 오는 아이가 없다
     const quiet = s.tutorial && s.tutorial.step < 4;
     if (!quiet && rand(s) < Math.min(0.85, pIn)) intakeAnimal(s, chooseBreed(s), false, ev);
@@ -1391,6 +1399,7 @@
 
   SIM.setFee = (s, level) => { s.feeLevel = level; return { ok: true }; };
   SIM.setIntakePolicy = (s, k) => { s.intakePolicy = k; return { ok: true }; };
+  SIM.setSpeciesPolicy = (s, k) => { if (D.SPECIES_POLICIES[k]) s.speciesPolicy = k; return { ok: true, msg: { both: '이제 강아지와 고양이를 모두 받아요', dog: '이제 강아지만 받아요', cat: '이제 고양이만 받아요' }[s.speciesPolicy] }; };
   SIM.setSubsidy = (s, on) => {
     s.subsidy = on;
     if (on) s.quotaLeft = D.SUBSIDY.quota;
@@ -1402,17 +1411,19 @@
   // 튜토리얼: 견사·묘사가 완공되면 첫 식구 둘이 온다
   SIM.tutorialArrive = (s) => {
     const ev = [];
-    intakeAnimal(s, 'jindo', true, ev);
-    intakeAnimal(s, 'korshort', true, ev);
-    ev.push({ type: 'popup', title: '첫 식구가 왔어요', body: '동네 사람이 길에서 떠돌던 강아지와 고양이를 데려왔어요.\n이제부터 보호소가 바빠질 거예요.' });
-    pushFeed(s, `${s.shelterName}에 첫 식구 둘이 들어왔다`, 'good');
+    const dog = wants(s, 'dog'), cat = wants(s, 'cat');
+    if (dog) intakeAnimal(s, 'jindo', true, ev);
+    if (cat) intakeAnimal(s, 'korshort', true, ev);
+    const who = dog && cat ? '강아지와 고양이를' : dog ? '강아지를' : '고양이를';
+    ev.push({ type: 'popup', title: '첫 식구가 왔어요', body: `동네 사람이 길에서 떠돌던 ${who} 데려왔어요.\n이제부터 보호소가 바빠질 거예요.` });
+    pushFeed(s, `${s.shelterName}에 첫 식구가 들어왔다`, 'good');
     return ev;
   };
   // 안내를 건너뛰면 견사·묘사를 바로 짓고 첫 식구를 들인다
   SIM.skipTutorial = (s) => {
     const spot = (type) => { for (let y = 3; y < s.gridH - 1; y++) for (let x = 2; x < s.gridW; x++) if (SIM.canPlace(s, type, x, y)) return [x, y]; return null; };
-    if (!Object.values(s.facilities).some((f) => f.type === 'bigkennel')) { const p = spot('bigkennel'); if (p) placeFacility(s, 'bigkennel', ...p); }
-    if (!Object.values(s.facilities).some((f) => f.type === 'cattery')) { const p = spot('cattery'); if (p) placeFacility(s, 'cattery', ...p); }
+    if (wants(s, 'dog') && !Object.values(s.facilities).some((f) => f.type === 'bigkennel')) { const p = spot('bigkennel'); if (p) placeFacility(s, 'bigkennel', ...p); }
+    if (wants(s, 'cat') && !Object.values(s.facilities).some((f) => f.type === 'cattery')) { const p = spot('cattery'); if (p) placeFacility(s, 'cattery', ...p); }
     for (const f of Object.values(s.facilities)) f.buildLeft = 0;
     return SIM.tutorialArrive(s);
   };
@@ -1435,7 +1446,14 @@
   // 10년 성과 보고와 앨범 속 아이들의 한마디. 같은 저장에서는 늘 같은 문장이 나오도록 id로 고른다
   SIM.finalReport = (s) => {
     const sum = SIM.summary(s), E = D.ENDING;
-    const title = E.titles.find((t) => sum.adopted >= t.min.adopted && sum.rank <= t.min.rankMax) || E.titles[E.titles.length - 1];
+    // 엔딩 갈래: 세 요소를 ★1~3으로 매긴다
+    const good = sum.adopted - sum.returned;
+    const tier = (v, [m, h]) => (v >= h ? 3 : v >= m ? 2 : 1);
+    const stars = { aware: tier(s.awareness, E.tiers.aware), adopt: tier(good, E.tiers.adopt), rep: tier(s.reputation, E.tiers.rep) };
+    const fits = (need) => Object.entries(need).every(([k, v]) => (k === 'sum' ? stars.aware + stars.adopt + stars.rep >= v : stars[k] >= v));
+    const route = E.routes.find((r) => fits(r.need)) || E.routes[E.routes.length - 1];
+    const fillS = (t) => t.replaceAll('{shelter}가', j(s.shelterName, '이가')).replaceAll('{shelter}를', j(s.shelterName, '을를')).replaceAll('{shelter}', s.shelterName);
+    const title = { id: route.id, art: route.art, name: route.name, text: fillS(route.text) };
     const owner = (s.staff.find((x) => x.role === 'owner') || {}).name || '선생님';
     const fill = (t, e) => t.replaceAll('{shelter}', s.shelterName).replaceAll('{owner}', owner).replaceAll('{name}', e.name);
     const kept = s.album.filter((e) => !e.back);
@@ -1452,7 +1470,8 @@
       return { name: e.name, breed: e.breed, coat: e.coat, years: Math.floor(years), text: fill(pool[(e.id * 7) % pool.length], e) };
     });
     return {
-      ...sum, years: E.years, title, voices, owner,
+      ...sum, years: E.years, title, voices, owner, stars, good, awareness: Math.round(s.awareness),
+      cityDrop: Math.round(s.awareness * 0.5),   // 도시 유기동물 신고 감소율(가상 수치, 인식 개선에 비례)
       born: s.stats.born, doorstep: s.stats.doorstep, donorsPeak: s.stats.donorsPeak, rep: Math.round(s.reputation),
       facilities: Object.keys(s.facilities).length, staff: s.staff.filter((x) => x.role !== 'owner' && x.role !== 'volunteer').length,
       yearLog: s.yearLog.slice(),

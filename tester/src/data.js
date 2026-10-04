@@ -323,6 +323,14 @@
   DATA.NPC_REP_RATE = 0.8;
   DATA.ADOPT_GIFT_MULT = 1.5;
 
+  // 받는 아이 종류(시작 화면에서 고르고, 경영 탭에서 언제든 바꾼다). 한 종만 받으면 길에서 오는 빈도는
+  // 그 종의 실제 비중(품종 가중치 합)만큼만 남는다. 현관 앞에 두고 간 아이·돌아온 아이는 종을 가리지 않는다
+  DATA.SPECIES_POLICIES = {
+    both: { name: '둘 다',   desc: '강아지와 고양이를 모두 받아요.' },
+    dog:  { name: '강아지만', desc: '강아지만 받아요. 고양이 보호 요청은 이웃 보호소로 안내돼요.' },
+    cat:  { name: '고양이만', desc: '고양이만 받아요. 강아지 보호 요청은 이웃 보호소로 안내돼요.' },
+  };
+
   DATA.INTAKE_POLICIES = {
     all:     { name: '모두 받기', desc: '들어오는 아이를 모두 받아요.' },
     healthy: { name: '건강한 아이 위주', desc: '다치거나 마음을 닫았거나 살찐 아이는 이웃 보호소로 보내요. 회전은 빠르지만 평판이 조금씩 깎여요.' },
@@ -394,14 +402,16 @@
     minTrust: 35, trustGain: 6, socialGain: 5,
     wantRate: 0.45, likeBoost: 1.8, bondReturn: 0.4, reserveDays: 60,
     families: [
-      { name: '초등학생 남매네 가족', likes: 'baby' },
-      { name: '신혼부부', likes: 'baby' },
-      { name: '은퇴한 노부부', likes: 'senior' },
-      { name: '혼자 사는 직장인', likes: 'adult' },
-      { name: '마당 있는 주택의 가족', likes: 'adult' },
-      { name: '첫 반려를 준비하는 대학원생', likes: null },
-      { name: '예전에 노견을 보낸 가족', likes: 'senior' },
+      { name: '초등학생 남매네 가족', likes: 'baby', who: ['visitor-mom', 'visitor-boy', 'visitor-girl'] },
+      { name: '신혼부부', likes: 'baby', who: ['visitor-groom', 'visitor-bride'] },
+      { name: '은퇴한 노부부', likes: 'senior', who: ['visitor-grandpa', 'visitor-grandma'] },
+      { name: '혼자 사는 직장인', likes: 'adult', who: ['visitor-office'] },
+      { name: '마당 있는 주택의 가족', likes: 'adult', who: ['visitor-dad', 'visitor-boy'] },
+      { name: '첫 반려를 준비하는 대학원생', likes: null, who: ['visitor-student'] },
+      { name: '예전에 노견을 보낸 가족', likes: 'senior', who: ['visitor-dad', 'visitor-mom'] },
     ],
+    // 교감 장면에서 방문자가 하는 말(말풍선)
+    talk: ['귀여워!', '이리 와~', '안녕?', '손!', '착하다~', '우리 집 갈래?'],
     acts: {
       dog: ['산책 줄을 잡자 {n} 먼저 앞장섰어요', '공을 던지자 {n} 물어 와서 발 앞에 놓았어요', '{n} 손바닥에 올린 간식을 조심조심 받아먹었어요', '쪼그려 앉자 {n} 무릎에 턱을 올렸어요'],
       cat: ['낚싯대 장난감에 {n} 한참을 뛰어올랐어요', '{n} 손등에 머리를 비볐어요', '가만히 앉아 있자 {n} 무릎으로 올라왔어요', '{n} 눈을 천천히 깜빡이며 인사했어요'],
@@ -514,11 +524,27 @@
   DATA.ENDING = {
     years: 10,
     voices: 8,   // 한마디를 전하는 아이 수(앨범에서 고름)
-    titles: [    // 위에서부터 처음 맞는 칭호
-      { min: { adopted: 600, rankMax: 1 }, name: '전설의 보호소', text: '이 동네에서 유기동물 이야기를 하면 모두가 이 보호소 이름을 먼저 꺼내요.' },
-      { min: { adopted: 0, rankMax: 3 },  name: '모두가 아는 보호소', text: '이웃 보호소들이 어려운 일이 생기면 먼저 연락하는 곳이 되었어요.' },
-      { min: { adopted: 200, rankMax: 99 }, name: '동네의 든든한 보호소', text: '산책길 사람들이 간식을 들고 들르는 곳이 되었어요.' },
-      { min: { adopted: 0, rankMax: 99 },  name: '작지만 따뜻한 보호소', text: '크지 않아도, 이곳을 거쳐 간 아이들은 모두 이름을 얻었어요.' },
+    // 엔딩 갈래(2026-10-04): 인식 개선·성공적인 입양(입양 − 파양)·평판을 3단계(★1~3)로 매기고,
+    // 위에서부터 처음 맞는 갈래를 고른다. 기준은 10년 시뮬레이션(방치 ≈ 인식 10·입양 3·평판 0,
+    // 보통 운영 ≈ 인식 98·입양 410·평판 990)으로 잡았다
+    tiers: { aware: [45, 80], adopt: [120, 300], rep: [400, 800] },
+    routes: [
+      { id: 'utopia', need: { aware: 3, adopt: 3, rep: 3 }, art: 'year', name: '모두의 마을',
+        text: '다온시에서는 이제 "어디서 데려왔어요?"라고 물으면 모두 보호소 이름을 말해요.\n버려지는 아이보다 새 가족을 찾는 아이가 더 빨리 줄었어요.\n{shelter}가 바꾼 10년이에요.' },
+      { id: 'culture', need: { aware: 3, adopt: 3 }, art: 'adopt', name: '입양이 당연한 도시',
+        text: '반려동물을 맞을 때 입양부터 떠올리는 사람이 많아졌어요.\n동네 아이들은 학교에서 {shelter} 이야기를 배워요.' },
+      { id: 'aware', need: { aware: 3 }, art: 'news', name: '인식이 바뀐 도시',
+        text: '반짝 유행에 휩쓸려 데려왔다가 버리는 일이 눈에 띄게 줄었어요.\n{shelter}의 캠페인은 이웃 도시로도 퍼졌어요.' },
+      { id: 'famous', need: { adopt: 3, rep: 3 }, art: 'celeb', name: '이름난 입양의 집',
+        text: '먼 동네에서도 가족을 찾으러 오는 보호소가 되었어요.\n입양 후기 게시판에는 오늘도 새 사진이 올라와요.' },
+      { id: 'bridge', need: { adopt: 3 }, art: 'adopt', name: '새 가족을 잇는 다리',
+        text: '셀 수 없이 많은 아이가 {shelter}를 거쳐 새 집으로 갔어요.\n명절마다 안부 사진이 쏟아져요.' },
+      { id: 'trusted', need: { rep: 3 }, art: 'quarter', name: '모두가 믿는 보호소',
+        text: '어려운 구조가 생기면 모두가 가장 먼저 {shelter}에 연락해요.\n투명한 운영은 동네의 자랑이 되었어요.' },
+      { id: 'steady', need: { sum: 6 }, art: 'level', name: '동네의 든든한 보호소',
+        text: '산책길 사람들이 간식을 들고 들르는 곳이 되었어요.\n크게 이름나지 않아도, 이 동네엔 {shelter}가 있어요.' },
+      { id: 'small', need: {}, art: 'open', name: '작지만 따뜻한 보호소',
+        text: '크지 않아도, 이곳을 거쳐 간 아이들은 모두 이름을 얻었어요.\n다음 10년은 조금 더 멀리 가 봐요.' },
     ],
     lines: {
       any: [
