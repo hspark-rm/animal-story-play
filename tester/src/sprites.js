@@ -18,7 +18,7 @@
   const SPR_TILE = (key) => (FILES.has(`iso-${key}`) ? `iso-${key}` : `tile-${key}`);
   SPR.preload = (scene) => {
     for (const key of FILES) {
-      if (/^(tile|animal|staff|named|iso|deco|bg|player|gt|yard|item|prop|visitor|fence)-/.test(key)) scene.load.image(key, SPR.path(key));
+      if (/^(tile|animal|staff|named|iso|deco|bg|player|gt|yard|item|prop|visitor|fence|emote)-/.test(key)) scene.load.image(key, SPR.path(key));
       // 포즈 띠(v0.10): 같은 크기 칸으로 잘라 프레임 번호로 쓴다
       const ps = key.startsWith('pose-') && !key.includes('.') && (G.POSE_SHEETS || {})[key.slice(5)];   // 클로즈업(<품종>.cu1)은 카드에서만 쓴다
       if (ps) scene.load.spritesheet(key, SPR.path(key), { frameWidth: ps.w, frameHeight: ps.h });

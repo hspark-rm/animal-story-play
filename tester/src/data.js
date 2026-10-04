@@ -400,6 +400,12 @@
       health: '무리 생활을 해서 혼자 두면 스트레스를 받아요. 따뜻한 굴과 모래가 필요해요.' },
   };
   // SNS 유행 후보: 미디어에서 자주 유행하는 소형·인기 품종
+  // 화면 몸 크기 배율(v0.11): 성견 기준 높이(개 34·고양이 28)에 곱한다. 소형 0.7 · 중형 0.85 · 대형 1.0 (집 배정 size와는 별개)
+  DATA.BODY = {
+    chihuahua: 0.62, yorkie: 0.65, pomeranian: 0.68, maltese: 0.7, maltipoo: 0.72, poodle: 0.72, shihtzu: 0.72, bichon: 0.74, dachshund: 0.7, frenchie: 0.78, schnauzer: 0.78, spitz: 0.8,
+    corgi: 0.8, shiba: 0.85, jindo: 0.9, bordercollie: 0.92, samoyed: 0.98, husky: 1.0, labrador: 1.0, golden: 1.0,
+    munchkin: 0.82, scottishfold: 0.92, siamese: 0.92, russianblue: 0.95, british: 0.98, persian: 0.95, angora: 0.95, ragdoll: 1.05, norwegian: 1.05, mainecoon: 1.12,
+  };
   DATA.TREND_BREEDS = ['corgi', 'bichon', 'poodle', 'maltipoo', 'pomeranian', 'shiba', 'frenchie', 'samoyed', 'munchkin', 'ragdoll', 'scottishfold', 'british'];
   // enabled: false = 보류 중(2026-10-04 사용자 결정). 켜면 이벤트와 특수동물 사육장이 나타난다
   DATA.EXOTIC = {

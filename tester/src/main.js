@@ -80,6 +80,9 @@
     return SPR.has(`iso-${t}`) ? `iso-${t}` : `tile-${t}`;
   };
   // 크기가 제각각인 그림을 월드 단위 높이(또는 너비)에 맞춘다
+  // 배경 누름(v0.11): 부지 바깥은 채도·밝기를 낮춰 보호소가 먼저 보이게 한다. 계절 색과 곱해 쓴다
+  const BG_DIM = 0xb4bfae;
+  const mulTint = (a, b) => { let o = 0; for (const sh of [16, 8, 0]) o |= Math.round(((a >> sh) & 255) * ((b >> sh) & 255) / 255) << sh; return o; };
   const fitHeight = (spr, h, wide = 1) => { const s = h / spr.height; spr.setScale(s * wide, s); };
   const fitWidth = (spr, w) => spr.setScale(w / spr.width);
   // 거울 시점에서는 그림을 좌우로 뒤집고 기준점도 반대편으로 옮긴다
@@ -113,15 +116,16 @@
       SPR.build(this, D);
       this.cameras.main.setBackgroundColor(SPR.has('bg-canopy') ? '#5f9e45' : '#a8dcef');
       // 게임개발스토리식 배경: 지도 바깥을 숲 무늬 한 장으로 끝없이 채운다(빈 하늘색이 보이지 않게)
-      this.seasonGround = []; this.seasonTrees = [];   // 계절 따라 색·그림을 바꿀 바닥과 바깥 나무
-      if (SPR.has('bg-canopy')) this.canopy = this.add.tileSprite(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 'bg-canopy').setTileScale(0.5).setDepth(-20);
+      this.seasonGround = []; this.seasonTrees = []; this.seasonBush = [];   // 계절 따라 색·그림을 바꿀 바닥과 바깥 나무
+      if (SPR.has('bg-canopy')) this.canopy = this.add.tileSprite(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 'bg-canopy').setTileScale(1).setDepth(-20).setTint(mulTint(0xffffff, 0x9fb096));
       this.drawGround();
       this.drawDecor();
       // 구름: 지도 위쪽을 천천히 흘러간다(가리지 않게 반투명)
       for (let i = 1; i <= 3; i++) {
         if (!SPR.has(`bg-cloud-${i}`)) continue;
-        const c = this.add.image(Math.random() * WORLD_W, TOP - 260 + Math.random() * 160, `bg-cloud-${i}`).setAlpha(0.88).setDepth(5400);   // 부지 뒤 하늘에만(건물을 가리지 않게)
-        fitWidth(c, 150 + Math.random() * 60);
+        // 구름은 하늘에 띄우지 않고 땅 위로 지나가는 옅은 그림자로만 보인다(건물 위에 떠 있으면 연기처럼 보였다)
+        const c = this.add.image(Math.random() * WORLD_W, TOP + Math.random() * (WORLD_H - TOP), `bg-cloud-${i}`).setTintFill(0x1e2a1a).setAlpha(0.1).setDepth(-1.6);
+        fitWidth(c, 260 + Math.random() * 120);
         const drift = () => this.tweens.add({ targets: c, x: WORLD_W + 200, duration: (WORLD_W + 200 - c.x) * 90, onComplete: () => { c.x = -200; drift(); } });
         drift();
       }
@@ -133,6 +137,7 @@
       this.tick4 = 0;
       // 160ms마다: 동물 포즈(걷기 4장·꼬리 흔들기)를 넘기고, 두 번에 한 번 사람 걷기 2장을 넘긴다
       this.time.addEvent({ delay: 160, loop: true, callback: () => { this.tick4 = (this.tick4 + 1) % 4; if (this.tick4 % 2 === 0) this.frame ^= 1; this.flipFrames(this.tick4 % 2 === 0); } });
+      this.time.addEvent({ delay: 1400, loop: true, callback: () => this.emoteTick() });
       this.setupInput();
       this.fitCamera(true);
       // 장면을 다시 시작할 때마다 resize 구독이 쌓이지 않게, 끝날 때 떼어 낸다
@@ -159,14 +164,17 @@
       if (this.winterVeil) { this.winterVeil.destroy(); this.winterVeil = null; }
       for (const o of this.snowmen || []) o.destroy();
       this.snowmen = [];
-      const tint = { spring: [0xffffff, 0xffffff], summer: [0xffffff, 0xeeffe0], autumn: [0xfff0c8, 0xf0b878], winter: [0xe6eef8, 0xc8d8e8] }[season];
-      for (const g of this.seasonGround) g.setTint(tint[0]);
-      if (this.canopy) this.canopy.setTint(tint[1]);
+      // 겨울은 잔디가 누렇게 마르고 서리가 앉은 색, 가을은 마른 잔디 색(눈사람 옆에 한여름 잔디가 보이지 않게)
+      const tint = { spring: [0xffffff, 0xffffff], summer: [0xffffff, 0xeeffe0], autumn: [0xf6e2b0, 0xf0b878], winter: [0xd8dccc, 0xc0ccd8] }[season];
+      for (const g of this.seasonGround) g.setTint(g.outside ? mulTint(tint[0], BG_DIM) : tint[0]);
+      if (this.canopy) this.canopy.setTint(mulTint(tint[1], 0x9fb096));
+      const bush = { spring: 0xffffff, summer: 0xffffff, autumn: 0xf2c890, winter: 0xc8d6e2 }[season];
+      for (const b of this.seasonBush || []) b.setTint(mulTint(bush, BG_DIM));
       const swap = { spring: 'bg-tree-spring', autumn: 'bg-tree-autumn' }[season];
       for (const t of this.seasonTrees) {
         const k = swap && SPR.has(swap) && t.pick < 0.4 ? swap : t.baseKey;
         if (t.texture.key !== k) { t.setTexture(k); fitHeight(t, t.baseH); }
-        t.setTint(season === 'winter' ? 0xd6e2ee : season === 'autumn' && k === t.baseKey ? 0xffd090 : 0xffffff);
+        t.setTint(mulTint(season === 'winter' ? 0xd6e2ee : season === 'autumn' && k === t.baseKey ? 0xffd090 : 0xffffff, BG_DIM));
       }
       if (season === 'winter') {
         this.winterVeil = this.add.rectangle(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 0xffffff, 0.16).setDepth(-1.5);
@@ -248,7 +256,7 @@
       // 바닥 질감 그림(gt-*)이 있으면 칸마다 붙인다. tools/make_ground_tiles.py가 격자 각도에 맞춰 만든 그림이다
       if (SPR.has('gt-grass-a')) {
         const key = (x, y) => {
-          if (x >= 0 && y >= 0 && x < COLS && y < ROWS) return y === ROAD ? 'gt-dirt' : ((x + y) % 2 ? 'gt-grass-a' : 'gt-grass-b');
+          if (x >= 0 && y >= 0 && x < COLS && y < ROWS) return y === ROAD ? 'gt-dirt' : (((x * 7 + y * 13) % 5) === 0 ? 'gt-grass-b' : 'gt-grass-a');   // 바둑판 대신 가끔만 섞는다
           if (y === ROWS + 1 || x === COLS + 1) return 'gt-asphalt';
           if (y === ROWS || x === COLS) return 'gt-paving';
           return 'gt-meadow';
@@ -256,7 +264,10 @@
         for (let y = -MARGIN; y < ROWS + MARGIN; y++) {
           for (let x = -MARGIN; x < COLS + MARGIN; x++) {
             const p = iso(x, y);
-            this.seasonGround.push(originM(this.add.image(p.x, p.y, key(x, y)), 85 / 198, 1 / 95).setScale(0.5).setDepth(-2));
+            const gi = originM(this.add.image(p.x, p.y, key(x, y)), 85 / 198, 1 / 95).setScale(0.5).setDepth(-2);
+            gi.outside = !(x >= 0 && y >= 0 && x < COLS && y < ROWS);
+            if (gi.outside) gi.setTint(BG_DIM);
+            this.seasonGround.push(gi);
           }
         }
       }
@@ -280,7 +291,7 @@
           const c = road ? ((x + y) % 2 ? 0xe9d3a2 : 0xe2c993) : ((x + y) % 2 ? 0xa9d672 : 0x9ccd66);
           const p = [iso(x, y), iso(x + 1, y), iso(x + 1, y + 1), iso(x, y + 1)];
           if (!tex) g.fillStyle(c, 1).fillPoints(p, true);
-          g.lineStyle(1, 0xffffff, tex ? 0.12 : 0.18).strokePoints(p, true);
+          g.lineStyle(1, 0xffffff, tex ? 0.06 : 0.18).strokePoints(p, true);
         }
       }
       // 바닥 두께(앞쪽 두 면)
@@ -354,6 +365,8 @@
         const p = iso(x, y);
         const s = this.add.image(p.x, p.y, key).setOrigin(0.5, 1).setDepth(2 + (x + y));
         fitHeight(s, h);
+        if (key.startsWith('bg-')) s.setTint(BG_DIM);   // 뒤 동네 풍경은 배경으로 물러나게
+        else this.seasonBush.push(s);
         for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) taken.add(`${Math.floor(x) + dx},${Math.floor(y) + dy}`);
       }
       // 바깥 둘레를 나무로 채운다. 부지에서 멀수록 빽빽하게, 같은 그림 몇 장을 크기·좌우만 바꿔 되풀이한다
@@ -375,6 +388,8 @@
           const p = iso(tx, ty);
           const img = this.add.image(p.x, p.y, key).setOrigin(0.5, 1).setDepth(2 + tx + ty);
           if (key !== 'deco-bush') { img.baseKey = key; img.baseH = h0 + (h1 - h0) * r; img.pick = hash(x + 11, y + 13); this.seasonTrees.push(img); }
+          else this.seasonBush.push(img);
+          img.setTint(BG_DIM);
           fitHeight(img, h0 + (h1 - h0) * r);
           if (hash(x + 3, y + 5) < 0.5) img.setFlipX(true);
         }
@@ -427,10 +442,12 @@
       cam.setBounds(-WORLD_W * 0.5, -WORLD_H * 0.5, WORLD_W * 2, WORLD_H * 2);
       if (first || !old) {
         // 세로 화면에서는 마름모 지도가 작아 보이므로 처음부터 확대해 보호소 가운데를 보여 준다
-        const portrait = h > w * 1.1;
-        cam.setZoom(Phaser.Math.Clamp(portrait ? fit * 1.8 : fit, this.minZoom, this.maxZoom));
-        const c = tileCenter(COLS / 2 - 0.5, ROWS / 2 - 0.5);
-        cam.centerOn(c.x, c.y - 30);
+        // 처음 화면은 보호소 부지에 맞춘다(동네 풍경이 화면 대부분을 차지하지 않게). 건물 높이만큼 위를 조금 더 둔다
+        const L = iso(0, ROWS), R = iso(COLS, 0), T = iso(0, 0), B = iso(COLS, ROWS);
+        const lotW = R.x - L.x, lotH = B.y - T.y + 90;
+        // 세로 화면은 마름모의 좌우 끝(빈 잔디)을 조금 잘라 더 크게 보인다
+        cam.setZoom(Phaser.Math.Clamp(Math.min(w * (h > w * 1.1 ? 1.45 : 0.96) / lotW, h * 0.86 / lotH), this.minZoom, this.maxZoom));
+        cam.centerOn((L.x + R.x) / 2, (T.y + B.y) / 2 - 30);
       } else {
         cam.setZoom(Phaser.Math.Clamp(cam.zoom * fit / old, this.minZoom, this.maxZoom));
       }
@@ -600,13 +617,14 @@
 
     sizeAnimal(spr) {
       const a = spr.animal;
-      const h = a.ageDays < 120 ? 20 : a.species === 'cat' ? 28 : 34;
+      const h = (a.ageDays < 120 ? 20 : a.species === 'cat' ? 28 : 34) * (a.ageDays < 120 ? 1 : D.BODY[a.breed] || 1);   // 품종 몸 크기(치와와와 골든이 같은 크기로 보이지 않게)
       if (POSE && POSE.has(a.breed)) {
         // 포즈 띠(v0.10): 걷기 1번 높이가 h가 되도록 시트 전체를 같은 배율로 그린다(누운 자세는 낮게 보인다)
         const key = `pose-${a.breed}`;
         if (spr.texture.key !== key) spr.setTexture(key);
         spr.setFrame(POSE.frame(a.breed, this.poseName(spr)));
         spr.setScale(h / POSE.sheet(a.breed).ref);
+        spr.bodyH = h;
       } else {
         const t = animalTex(a, spr.moving ? this.frame : 0);
         if (spr.texture.key !== t.key) spr.setTexture(t.key);
@@ -615,6 +633,45 @@
       const tint = SIM.coatTint(a);
       if (tint) spr.setTint(tint); else spr.clearTint();
       if (spr.flipped) spr.scaleX = -Math.abs(spr.scaleX);
+    }
+
+    // 감정 말풍선(v0.11): 머리 위에 잠깐 뜬다. 상태가 핵심 정보라 그림보다 먼저 읽히게 한다
+    emote(spr, key, ms = 1700) {
+      if (!SPR.has(`emote-${key}`) || !spr.active) return;
+      if (spr.emoteImg) spr.emoteImg.destroy();
+      const img = this.add.image(spr.x, spr.y, `emote-${key}`).setOrigin(0.5, 1).setDepth(5900).setScale(2);   // 1배 도트를 정수 배율로만 키운다
+      spr.emoteImg = img;
+      this.placeEmote(spr);
+      this.tweens.add({ targets: img, scaleY: { from: 0.8, to: 2 }, duration: 160, ease: 'Back.Out' });
+      this.time.delayedCall(ms, () => { if (spr.emoteImg === img) spr.emoteImg = null; img.destroy(); });
+    }
+    placeEmote(spr) {
+      const img = spr.emoteImg;
+      if (!img) return;
+      img.setVisible(spr.visible).setPosition(spr.x, spr.y - (spr.bodyH || spr.displayHeight) - 2);
+    }
+    emoteFor(spr) {
+      const a = spr.animal, st = POSE ? POSE.stateOf(a) : null, now = this.time.now, inv = state.inv;
+      if (st === 'closed') return a.trust < 20 ? 'sweat' : 'dots';
+      if (st === 'sick' || st === 'injured') return 'dizzy';
+      if (st === 'nursing' || st === 'pregnant') return 'heart';
+      if ((a.species === 'dog' ? inv.dogFood : a.species === 'cat' ? inv.catFood : 1) < 1) return 'bowl';
+      if (!spr.moving && spr.idlePose === 'sleep') return 'zz';
+      if (spr.cheer > now || spr.act === 'play' || spr.act === 'fetch') return 'note';
+      if (a.days < 3) return 'question';
+      if (SIM.isReady(a) && Math.random() < 0.5) return 'sparkle';
+      if (a.trust >= 70 && Math.random() < 0.5) return 'heart';
+      return null;
+    }
+    emoteTick() {
+      const all = Object.values(this.animalSpr).filter((x) => x.active && x.visible && x.animal);
+      if (all.filter((x) => x.emoteImg).length >= 4) return;
+      const free = all.filter((x) => !x.emoteImg);
+      for (let i = 0; i < 2 && free.length; i++) {
+        const spr = free.splice(Math.floor(Math.random() * free.length), 1)[0];
+        const k = this.emoteFor(spr);
+        if (k) { this.emote(spr, k); return; }
+      }
     }
 
     // 지금 보여 줄 포즈: 상태 그림이 먼저, 그다음 이동(걷기 4장·달리기), 그다음 쉬는 습성(spr.idlePose)
@@ -722,7 +779,8 @@
         this.tweens.add({ targets: ball, x: to.x, y: to.y, duration: 650, ease: 'Quad.Out' });
         spr.act = 'fetch'; spr.running = true; this.go(spr, to, true);
         spr.prop = ball;
-        spr.onFetch = () => { ball.destroy(); spr.prop = null; this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); };
+        spr.onFetch = () => { ball.destroy(); spr.prop = null; this.emote(spr, 'note'); };
+        this.emote(spr, 'alert', 900);
         return;
       }
       if (kind === 'toys' && a.species === 'cat') {
@@ -860,7 +918,7 @@
       for (let i = 0; i < 2; i++) this.time.delayedCall(400 + i * 900, () => this.floatText(person.x, person.y - h - 6, '♥', '#e85a7a'));
       this.time.delayedCall(ms, () => {
         held.destroy();
-        if (spr.active) { spr.setVisible(true); spr.cheer = this.time.now + 2000; }
+        if (spr.active) { spr.setVisible(true); spr.cheer = this.time.now + 2000; this.emote(spr, 'heart'); }
         person.hugging = false;
         if (person.active) { person.setTexture(`${base}-0`); person.setScale(sx * (person.flipped ? -1 : 1), sy); }
       });
@@ -1089,6 +1147,7 @@
           if (!spr.arrived) { spr.arrived = true; this.onArrive(spr); }
           else if (Math.random() < 0.012) this.pickActivity(spr, home);
         }
+        this.placeEmote(spr);
       }
       const facs = Object.values(state.facilities);
       for (const spr of Object.values(this.staffSpr)) {
