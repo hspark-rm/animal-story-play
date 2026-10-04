@@ -113,7 +113,7 @@
       setDims(state);
       // 장면을 다시 시작하면(지점 바꾸기·시점 돌리기) 예전 오브젝트는 모두 사라진다. 남은 참조와 캐시를 비운다
       this.yardSig = null; this.itemSig = null; this.yardObjs = []; this.itemObjs = []; this.fenceObjs = [];
-      this.padLayer = null; this.sorted = null; this.visitors = []; this.fx = null; this.winterVeil = null; this.snowmen = []; this.walkGrid = null;
+      this.padLayer = null; this.sorted = null; this.visitors = []; this.leavers = []; this.fx = null; this.winterVeil = null; this.snowmen = []; this.walkGrid = null;
       SPR.build(this, D);
       this.cameras.main.setBackgroundColor(SPR.has('bg-canopy') ? '#5f9e45' : '#a8dcef');
       // 게임개발스토리식 배경: 지도 바깥을 숲 무늬 한 장으로 끝없이 채운다(빈 하늘색이 보이지 않게)
@@ -633,7 +633,7 @@
         const key = `pose-${a.breed}`;
         if (spr.texture.key !== key) spr.setTexture(key);
         spr.setFrame(POSE.frame(a.breed, this.poseName(spr)));
-        spr.setScale(h / POSE.sheet(a.breed).ref);
+        spr.setScale(h / POSE.sheet(a.breed).ref * (spr.wideMul || 1), h / POSE.sheet(a.breed).ref);
         spr.bodyH = h;
       } else {
         const t = animalTex(a, spr.moving ? this.frame : 0);
@@ -706,9 +706,12 @@
     // 지금 보여 줄 포즈: 상태 그림이 먼저, 그다음 이동(걷기 4장·달리기), 그다음 쉬는 습성(spr.idlePose)
     poseName(spr) {
       const a = spr.animal, st = POSE.stateOf(a), f4 = this.tick4 || 0, f2 = f4 % 2;
+      spr.wideMul = 1;
       if (spr.moving) {
-        const w = POSE.walkOf(st);
-        if (w) return w;
+        // 상태별 걷기(v0.16): 상태 그림 한 장이 미끄러지지 않게, 있는 걷기 그림으로 걷는다
+        if (st === 'fat') { spr.wideMul = 1.2; return `walk-${f4}`; }          // 통통하게 넓힌 걷기
+        if (st === 'pregnant') { spr.wideMul = 1.12; return `walk-${f4}`; }    // 배가 부른 만큼 조금 넓게, 천천히
+        if (st === 'injured') return 'injured';                                // 넥카라 그림으로 기우뚱 절뚝(place에서 기울인다)
         return spr.running && !st ? `run-${f2}` : `walk-${f4}`;
       }
       if (st) return st;
@@ -739,6 +742,7 @@
       const a = spr.animal, inv = state.inv, r = Math.random();
       spr.act = 'home';
       spr.running = false;
+      if (spr.prop) { spr.prop.destroy(); spr.prop = null; spr.onFetch = null; }   // 쫓던 공·털실은 다른 일을 하러 가면 치운다
       let to = this.spotIn(home);
       if (!a) { this.go(spr, to); return; }
       const st = POSE && POSE.stateOf(a);
@@ -795,16 +799,17 @@
     // 장난감·개껌·츄르 놀이. 물품 그림을 잠깐 띄운다
     play(spr) {
       const a = spr.animal, inv = state.inv, dir = spr.flipped ? -1 : 1;
-      const prop = (key, x, y) => { const img = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(spr.depth + 0.2); fitHeight(img, 15); return img; };
+      // 장난감은 7초 뒤 저절로 치운다(놀이가 끊겨도 길에 남지 않게)
+      const prop = (key, x, y) => { const img = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(spr.depth + 0.2); fitHeight(img, 15); this.time.delayedCall(7000, () => { if (img.active) img.destroy(); if (spr.prop === img) spr.prop = null; }); return img; };
       const opts = a.species === 'cat' ? ['toys', 'churu'] : ['toys', 'dogchew'];
       const have = opts.filter((k) => (inv[k] || 0) > 0 && SPR.has(`item-${k}`));
       if (!have.length) return;
       const kind = have[Math.floor(Math.random() * have.length)];
       if (kind === 'toys' && a.species === 'dog') {
         // 공 던지기: 공이 굴러가면 쫓아가서 물어 온다
-        const ball = prop('item-toys', spr.x + dir * 8, spr.y);
         const to = { x: spr.x + dir * (40 + Math.random() * 30), y: spr.y + (Math.random() - 0.5) * 24 };
-        if (!this.walkable(to)) return;   // 공이 건물 쪽으로 굴러가면 던지지 않는다
+        if (!this.walkable(to)) return;   // 공이 건물 쪽으로 굴러가면 던지지 않는다(공을 만들기 전에 본다)
+        const ball = prop('item-toys', spr.x + dir * 8, spr.y);
         this.tweens.add({ targets: ball, x: to.x, y: to.y, duration: 650, ease: 'Quad.Out' });
         spr.act = 'fetch'; spr.running = true; this.go(spr, to, true);
         spr.prop = ball;
@@ -815,10 +820,10 @@
       if (kind === 'toys' && a.species === 'cat') {
         // 고양이 장난감은 개와 다르다: 털실 공을 굴려 쫓거나, 낚싯대 깃털에 뛰어오른다
         if (Math.random() < 0.5 && SPR.has('prop-yarn')) {
-          const yarn = prop('prop-yarn', spr.x + dir * 8, spr.y);
-          fitHeight(yarn, 11);
           const to = { x: spr.x + dir * (22 + Math.random() * 16), y: spr.y + (Math.random() - 0.5) * 14 };
           if (!this.walkable(to)) return;
+          const yarn = prop('prop-yarn', spr.x + dir * 8, spr.y);
+          fitHeight(yarn, 11);
           this.tweens.add({ targets: yarn, x: to.x, y: to.y, angle: dir * 360, duration: 700, ease: 'Quad.Out' });
           spr.act = 'fetch'; this.go(spr, { x: to.x - dir * 8, y: to.y }, true);
           spr.prop = yarn;
@@ -834,6 +839,7 @@
           fitHeight(wand, 20);
           if (dir < 0) wand.setFlipX(true);
           spr.hold = this.time.now + 2600;
+          spr.cheer = this.time.now + 2600;   // 뛰어오를 때는 꼬리 흔들기 포즈(누운 채 뛰지 않게)
           this.tweens.add({ targets: wand, angle: { from: -18, to: 18 }, duration: 260, yoyo: true, repeat: 4 });
           this.tweens.add({ targets: spr, y: spr.y - 12, duration: 200, yoyo: true, repeat: 3, ease: 'Quad.Out' });
           this.time.delayedCall(2600, () => { wand.destroy(); if (spr.active) this.floatText(spr.x, spr.y - 30, '♥', '#e85a7a'); });
@@ -848,6 +854,9 @@
 
     leave(spr) {
       if (spr.prop) { spr.prop.destroy(); spr.prop = null; }   // 쫓던 공·털실을 지도에 남기지 않는다
+      // 입양 가는 아이는 동물 목록에서 빠지므로 따로 모아 걷기 그림을 넘긴다(자던 포즈로 미끄러져 나가던 문제)
+      spr.idlePose = null; spr.cheer = 0; spr.running = false; spr.setAngle(0);
+      (this.leavers = (this.leavers || []).filter((x) => x.active)).push(spr);
       spr.onFetch = null;
       this.floatText(spr.x, spr.y - 40, '♥', '#e85a7a');
       const from = { x: spr.px ?? spr.x, y: spr.py ?? spr.y };
@@ -889,6 +898,7 @@
       const street = iso(COLS / 2 + 0.5, ROWS + 1.5), gate = tileCenter(Math.floor(COLS / 2), ROAD);
       const exit = iso(COLS + 1.5, ROWS + 1.5);
       spr.hold = this.time.now + 14000;   // 가족이 올 때까지 기다린다
+      spr.idlePose = 'sit';               // 자는 포즈로 기다리다 뛰어오르지 않게
       const home = { x: spr.px ?? spr.x, y: spr.py ?? spr.y };
       const people = who.map((key, i) => {
         const v = this.add.sprite(street.x - i * 14, street.y + i * 4, `${key}-0`).setOrigin(0.5, 1).setScale(0.72);
@@ -914,6 +924,7 @@
           this.time.delayedCall(300 + i * 700, () => { v.waving = this.time.now + 1300; this.floatText(v.x, v.y - 58, D.VISIT.talk[Math.floor(Math.random() * D.VISIT.talk.length)], '#3b6fd0'); });
         });
         if (spr.active) {
+          spr.cheer = this.time.now + 2400;   // 반기며 뛸 때는 꼬리 흔들기 포즈
           this.tweens.add({ targets: spr, y: spr.y - 9, duration: 170, yoyo: true, repeat: 3, delay: 400 });
           for (let i = 0; i < 3; i++) this.time.delayedCall(500 + i * 650, () => { if (spr.active) this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); });
         }
@@ -959,6 +970,7 @@
 
     flipFrames(people = true) {
       for (const spr of Object.values(this.animalSpr)) if (spr.active && spr.animal) this.sizeAnimal(spr);
+      for (const spr of this.leavers || []) if (spr.active && spr.animal) this.sizeAnimal(spr);
       for (const v of this.visitors || []) {
         if (!v.active || (v.hugging && !(POSE && POSE.has(v.base)))) continue;
         if (this.applyPerson(v, v.base)) continue;
@@ -1146,7 +1158,9 @@
     }
 
     place(spr) {
-      const bob = spr.moving ? Math.abs(Math.sin(spr.phase)) * 2.4 : 0;
+      const limp = spr.moving && spr.animal && POSE && POSE.stateOf(spr.animal) === 'injured';
+      const bob = spr.moving ? Math.abs(Math.sin(spr.phase)) * (limp ? 3.2 : 2.4) : 0;
+      spr.setAngle(limp ? Math.sin(spr.phase) * 7 : 0);
       spr.x = spr.px; spr.y = spr.py - bob;
       spr.setDepth(this.charDepth(spr.px, spr.py));
     }
