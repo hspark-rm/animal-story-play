@@ -357,6 +357,10 @@
           if (!first) { const s = img.scaleY; this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 220, ease: 'Back.Out' }); }
           this.facLayer[f.id] = img;
         } else if (img.texture.key !== key) {
+          // 완공 순간: 그림만 바꾸지 말고 자리도 다시 잡는다. 옆 칸과 이어져 긴 건물의 첫 칸이 되면
+          // 앞 꼭짓점이 공사 때와 달라진다(2026-10-04 긴 묘사가 두 칸 왼쪽에 그려진 버그)
+          img.setPosition(front.x, front.y + 1);
+          img.fallbackOrigin = originX;
           img.setVisible(!hidden);
           img.setTexture(key);
           anchorImg(img, key);
