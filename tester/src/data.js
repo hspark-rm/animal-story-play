@@ -48,7 +48,7 @@
       ],
     },
     influencer: {
-      name: '인스타 10만 인플루언서', diff: '보통', tag: 'SNS는 강하고 지갑은 얇다',
+      name: '인싸그램 10만 인플루언서', diff: '보통', tag: 'SNS는 강하고 지갑은 얇다',
       desc: 'SNS 효과가 2배이고 후원자가 많습니다. 다만 후원자 한 명의 후원금이 작습니다.',
       money: 5_000_000, reputation: 80, awareness: 55, donors: 120, donorFee: 4_000, snsMult: 2, hireBonus: 1, namedRepCut: 0.8, adoptMult: 1, donorMult: 1,
       extra: [],
