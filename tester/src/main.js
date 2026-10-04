@@ -84,7 +84,11 @@
   const fitWidth = (spr, w) => spr.setScale(w / spr.width);
   // 거울 시점에서는 그림을 좌우로 뒤집고 기준점도 반대편으로 옮긴다
   const originM = (img, ox, oy) => img.setFlipX(MIR).setOrigin(MIR ? 1 - ox : ox, oy);
+  // 격자에 맞게 편 건물 그림(tools/fit_iso.py): 0.5배로 그리고 바닥 앞 꼭짓점에 세운다
+  const FIT = G.ISO_FIT || {};
   const anchorImg = (img, key) => {
+    const f = FIT[key];
+    if (f && img.width > 1) { originM(img, f[0] / img.width, (f[1] + 1) / img.height); return; }
     const a = ANCHOR[key];
     if (a && img.width > 1) originM(img, a[0] / img.width, (a[1] + 1) / img.height);
     else originM(img, img.fallbackOrigin ?? FRONT, 1);
@@ -509,6 +513,7 @@
         const width = (box.x1 - box.x0 - 2 * GAP) * AX + (box.y1 - box.y0 - 2 * GAP) * AY;
         const sizeFac = (img) => {
           if (def.decor && SPR.has(key)) { originM(img, 0.5, 1); fitHeight(img, def.h); return; }
+          if (FIT[key]) { img.setScale(0.5); return; }   // 격자에 맞게 편 그림은 크기도 이미 맞다
           fitWidth(img, width);
           const a = ANCHOR[key];
           if (a && a[2] === 'left') img.setScale((box.x1 - box.x0 - 2 * GAP) * AX / a[0]);
