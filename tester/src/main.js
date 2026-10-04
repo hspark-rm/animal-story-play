@@ -1382,7 +1382,7 @@
   if (G.TEST_AUTO && !new URLSearchParams(location.search).has('keep')) UI.clearSave();
   const saved = UI.load();
   if (saved) begin(saved); else startNew();
-  if (G.TEST_AUTO) { speed = Number(new URLSearchParams(location.search).get('speed')) || 20; UI.setSpeed(speed); }
+  if (G.TEST_AUTO) { speed = Number(new URLSearchParams(location.search).get('speed')) || 40; UI.setSpeed(speed); }   // 하루가 8.4초라 예전 ×20과 같은 빠르기
   window.addEventListener('pagehide', () => { if (state) UI.save(state); });
 
   // 시험 모드(?test): 오류를 모으고, 화면 왼쪽 아래에 FPS·날짜·배속·오류 수를 띄운다

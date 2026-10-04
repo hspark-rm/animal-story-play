@@ -984,7 +984,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     if (G.TEST) {
       // 시험 모드: ×20 단추를 더한다(일반 플레이에는 없다)
       const four = document.querySelector('[data-speed="4"]');
-      if (four && !document.querySelector('[data-speed="20"]')) four.insertAdjacentHTML('afterend', '<button type="button" data-speed="20" aria-label="20배속">×20</button>');
+      if (four && !document.querySelector('[data-speed="20"]')) four.insertAdjacentHTML('afterend', '<button type="button" data-speed="20" aria-label="20배속">×20</button><button type="button" data-speed="40" aria-label="40배속">×40</button>');
     }
     for (const b of document.querySelectorAll('[data-speed]')) {
       const v = Number(b.dataset.speed);
