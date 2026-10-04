@@ -104,8 +104,9 @@
     const lv = SIM.levelFor(s.reputation);
     if (lv <= s.level) return;
     s.level = lv;
-    const opened = Object.values(D.FACILITIES).filter((f) => f.lv === lv).map((f) => f.name);
-    ev.push({ type: 'popup', title: `보호소 등급 Lv${lv}`, body: `${SIM.levelInfo(lv).name}이 되었어요.${opened.length ? `\n새로 지을 수 있어요: ${opened.join(', ')}` : ''}` });
+    const opened = Object.entries(D.FACILITIES).filter(([k, f]) => f.lv === lv && !f.fixed && (k !== 'exotic' || D.EXOTIC.enabled)).map(([, f]) => f.name);
+    const projects = Object.values(D.PROJECTS).filter((p) => p.need.lv === lv).map((p) => p.name);
+    ev.push({ type: 'popup', title: `보호소 등급 Lv${lv}`, body: `${j(SIM.levelInfo(lv).name, '이가')} 되었어요.${opened.length ? `\n새로 지을 수 있어요: ${opened.join(', ')}` : ''}${projects.length ? `\n특수 사업이 열려요(조건 충족 시): ${projects.join(', ')}` : ''}${lv === D.MAIN_STAGE_LV[1] || lv === D.MAIN_STAGE_LV[2] ? '\n본관이 커졌어요!' : ''}` });
     pushFeed(s, `우리 보호소가 '${SIM.levelInfo(lv).name}'로 불리기 시작했다`, 'good');
   }
 
@@ -126,6 +127,7 @@
     if (s.tutorial === undefined) s.tutorial = null;
     if (!s.yearLog) s.yearLog = [];
     if (!s.yardItems) s.yardItems = {};
+    for (const a of s.animals) if (!a.story) a.story = ['예전부터 보호소에서 지내 왔다'];
     if (!Object.values(s.facilities).some((f) => f.type === 'main')) placeMain(s);
     if (s.ending === undefined) s.ending = null;
     s.stats.born = s.stats.born || 0; s.stats.placed = s.stats.placed || 0; s.stats.doorstep = s.stats.doorstep || 0;
@@ -191,6 +193,108 @@
     if (spot) placeFacility(s, 'main', spot[0], spot[1]);
   }
   SIM.mainStage = (s) => D.MAIN_STAGE_LV.filter((lv) => s.level >= lv).length;   // 1~3
+
+  /* ---------- 특수 사업·유튜브·굿즈 개발 (v0.8) ---------- */
+  SIM.projectLock = (s, id) => {
+    const P = D.PROJECTS[id], n = P.need;
+    if (n.lv && s.level < n.lv) return `보호소 등급 Lv${n.lv}부터`;
+    if (n.adopted && s.stats.adopted < n.adopted) return `누적 입양 ${n.adopted}마리부터 (지금 ${s.stats.adopted})`;
+    if (n.aware && s.awareness < n.aware) return `인식 ${n.aware} 이상부터 (지금 ${Math.round(s.awareness)})`;
+    if (P.once && s.channel) return '이미 열었어요';
+    const active = (s.projects || []).find((p) => p.id === id);
+    if (active && active.until > s.day) return `진행 중 (${active.until - s.day}일 남음)`;
+    if (active && P.cool && s.day < active.until + P.cool) return `${active.until + P.cool - s.day}일 뒤 다시 할 수 있어요`;
+    return null;
+  };
+  SIM.projectActive = (s, id) => (s.projects || []).some((p) => p.id === id && p.until > s.day);
+  SIM.startProject = (s, id) => {
+    const P = D.PROJECTS[id];
+    const lock = SIM.projectLock(s, id);
+    if (lock) return { ok: false, msg: lock };
+    if (s.money < P.cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'campaign', P.cost);
+    if (id === 'channel') { s.channel = { subs: 0, videos: 0 }; pushFeed(s, `${s.shelterName} 유튜브 채널이 문을 열었다`, 'good'); return { ok: true, msg: '채널을 열었어요. 이제 영상을 찍어 보세요' }; }
+    s.projects = (s.projects || []).filter((p) => p.id !== id);
+    s.projects.push({ id, start: s.day, until: s.day + P.days, done: false });
+    if (id === 'lecture') { s.awareness = clamp(s.awareness + 6, 0, 100); s.buffs.push({ id: 'lecture', until: s.day + 30 }); }
+    pushFeed(s, `${j(P.name, '이가')} 시작됐다`, 'good');
+    return { ok: true, msg: `${P.name} 시작!` };
+  };
+  SIM.shootVideo = (s, kind) => {
+    const V = D.VIDEOS[kind];
+    if (!s.channel) return { ok: false, msg: '채널을 먼저 열어야 해요' };
+    if (s.channel.lastShot === s.day) return { ok: false, msg: '영상은 하루에 하나만 찍어요' };
+    if (s.money < V.cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'campaign', V.cost);
+    const k = (1 + power(s, 'sns') * 0.06) * s.snsMult * (activeCelebs(s).length ? 1.5 : 1)
+      * (kind === 'review' ? 1 + Math.min(1, s.stats.adopted / 300) : kind === 'vlog' ? 1 + SIM.mood(s) / 60 : (power(s, 'train') > 0 ? 1.5 : 1));
+    const add = Math.round(randInt(s, V.subs[0], V.subs[1]) * k);
+    s.channel.subs += add; s.channel.videos++; s.channel.lastShot = s.day;
+    s.awareness = clamp(s.awareness + V.aware, 0, 100);
+    return { ok: true, msg: `${V.name} 업로드! 구독자 +${add.toLocaleString()}` };
+  };
+  // 매일: 진행 중 사업의 효과와 끝날 때 결과
+  function projectTick(s, ev) {
+    for (const p of s.projects || []) {
+      if (p.done) continue;
+      if (p.id === 'mega' && p.until > s.day) s.awareness = clamp(s.awareness + 15 / D.PROJECTS.mega.days, 0, 100);
+      if (p.id === 'farm' && p.until > s.day && rand(s) < 0.2) {
+        const keys = D.TREND_BREEDS.filter((b) => D.BREEDS[b] && wants(s, D.BREEDS[b].species));
+        if (keys.length) intakeAnimal(s, pick(s, keys), false, ev, { how: 'farm' });
+      }
+      if (s.day < p.until) continue;
+      p.done = true;
+      const P = D.PROJECTS[p.id];
+      let body = '';
+      if (p.id === 'charity') { const g = randInt(s, 800, 1500) * 10_000; income(s, 'gift', g); const d = randInt(s, 30, 60); s.donors += d; body = `모금 ${won(g)} · 정기후원자 +${d}명`; }
+      else if (p.id === 'mega') body = '도시 곳곳에서 "사지 말고 입양하세요" 캠페인 광고를 볼 수 있었어요.';
+      else if (p.id === 'rescue') body = '떠돌던 아이들을 많이 품었어요. 이제 한 아이 한 아이 가족을 찾아 줄 차례예요.';
+      else if (p.id === 'farm') { s.waveDamp = (s.waveDamp || 1) * 0.6; s.awareness = clamp(s.awareness + 8, 0, 100); s.reputation += 20; body = '그곳은 문을 닫았고, 남겨진 아이들은 이제 쉴 수 있어요.\n앞으로 유행 뒤 유기 물결이 크게 줄어요.'; }
+      else if (p.id === 'lecture') body = '강연을 들은 사람들이 주변에 입양 이야기를 전하고 있어요.';
+      ev.push({ type: 'popup', title: `${P.name} 마무리`, body });
+      pushFeed(s, `${j(P.name, '이가')} 마무리됐다`, 'good');
+    }
+  }
+  SIM.goodsNext = (s) => D.GOODS.find((g) => !(s.goods && s.goods.released.some((r) => r.id === g.id)));
+  SIM.developGoods = (s) => {
+    s.goods = s.goods || { released: [], dev: null };
+    if (!has(s, 'shop')) return { ok: false, msg: '굿즈샵이 있어야 해요' };
+    if (s.goods.dev) return { ok: false, msg: '이미 개발 중이에요' };
+    const g = SIM.goodsNext(s);
+    if (!g) return { ok: false, msg: '모든 굿즈를 출시했어요' };
+    if (s.money < g.cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'facility', g.cost);
+    s.goods.dev = { id: g.id, left: g.days };
+    return { ok: true, msg: `${g.name} 개발 시작! ${g.days}일 걸려요` };
+  };
+  function goodsTick(s, ev) {
+    const G = s.goods;
+    if (!G || !G.dev) return;
+    if (--G.dev.left > 0) return;
+    const g = D.GOODS.find((x) => x.id === G.dev.id);
+    const q = clamp(Math.round(2 + power(s, 'sns') * 0.12 + rand(s) * 2), 1, 5);
+    G.released.push({ id: g.id, q });
+    G.dev = null;
+    ev.push({ type: 'popup', title: `${g.name} 출시!`, body: `완성도 ${'★'.repeat(q)}${'☆'.repeat(5 - q)}\n달마다 굿즈샵 매출에 더해져요.` });
+    pushFeed(s, `${s.shelterName}의 새 굿즈 '${g.name}' 출시`, 'good');
+  }
+  SIM.goodsMonthly = (s) => (s.goods ? s.goods.released.reduce((t, r) => t + D.GOODS.find((g) => g.id === r.id).base * r.q / 3, 0) : 0) * (0.6 + s.reputation / 1000);
+
+  /* ---------- 시설 업그레이드 (v0.8) ---------- */
+  SIM.facLevel = (f) => (f && f.lvl) || 1;
+  const upAny = (s, type, lv) => facList(s, type).some((f) => SIM.facLevel(f) >= lv);   // 그 단계 이상 시설이 하나라도
+  SIM.upgradeInfo = (f) => { const list = D.UPGRADES[f.type]; return list ? list[SIM.facLevel(f) - 1] || null : null; };
+  SIM.upgrade = (s, id) => {
+    const f = s.facilities[id];
+    const u = f && SIM.upgradeInfo(f);
+    if (!u) return { ok: false, msg: '더 올릴 단계가 없어요' };
+    if (f.buildLeft) return { ok: false, msg: '공사가 끝나야 올릴 수 있어요' };
+    if (s.money < u.cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'facility', u.cost);
+    f.lvl = SIM.facLevel(f) + 1;
+    pushFeed(s, `${D.FACILITIES[f.type].name}에 '${u.name}'을 갖췄다`, 'good');
+    return { ok: true, msg: `${u.name} 완료! ${u.desc}` };
+  };
 
   /* ---------- 꾸밈과 분위기 (v0.7) ---------- */
   const decorList = (s, type) => facList(s).filter((f) => D.FACILITIES[f.type].decor && (!type || f.type === type));
@@ -302,7 +406,7 @@
   SIM.lineCap = (s, f, groups) => {
     const list = (groups || SIM.groups(s))[f.type];
     const g = list && list.find((k) => k.ids.includes(f.id));
-    return D.FACILITIES[f.type].cap + (g && g.ids[0] === f.id ? g.len - 1 : 0);
+    return D.FACILITIES[f.type].cap + (g && g.ids[0] === f.id ? g.len - 1 : 0) + ((f.type === 'kennel' || f.type === 'bigkennel') && SIM.facLevel(f) >= 3 ? 1 : 0);
   };
   SIM.kennelCap = SIM.lineCap;
   // 개의 몸집: 소형견은 소형견사, 중·대형견은 대형견사에서 지낸다
@@ -345,6 +449,7 @@
     }
     return null;
   }
+  SIM.hasRoom = (s, a) => !!freeHome(s, a.species, a.breed);
   // 특수동물이 전용 사육장이 아닌 곳에 있으면 '임시 거처'
   // 중·대형견이 소형견사에 있어도 '임시 거처'(예전 저장에서 옮겨 온 아이들)
   SIM.makeshift = (s, a) => {
@@ -518,6 +623,14 @@
   }
 
   // 자리를 찾아 실제로 들인다
+  // 아이마다 짧은 이야기(지도에서 아이를 누르면 보인다). 최근 6줄만 남긴다
+  function story(s, a, text) {
+    a.story = a.story || [];
+    a.story.push(`${SIM.dateLabel(s.day).replace(/ · .*$/, '')} ${text}`);
+    if (a.story.length > 6) a.story.splice(1, 1);   // 첫 줄(들어온 경위)은 남긴다
+  }
+  SIM.story = story;
+
   function admit(s, a, events) {
     const b = D.BREEDS[a.breed];
     const home = freeHome(s, b.species, a.breed);
@@ -525,6 +638,8 @@
     a.home = home;
     s.animals.push(a);
     s.stats.rescued++; s.ledger.rescued++;
+    if (SIM.projectActive(s, 'rescue')) s.reputation += 1;
+    if (!a.story) story(s, a, a.returned ? '새 가족과 맞지 않아 다시 돌아왔다' : a.how === 'doorstep' ? '아침에 보호소 문 앞에서 발견됐다' : a.how === 'forced' ? '지자체 위탁으로 들어왔다' : a.how === 'farm' ? '문을 닫은 번식장에서 구조됐다' : a.closed ? '사람을 피하던 채로 길에서 구조됐다' : a.injured ? '다친 채 길에서 구조됐다' : '길에서 구조됐다');
     if (a.injured) s.pending.push({ kind: 'injury', id: a.id });
     if (events) {
       let text = `길에서 온 ${b.name} ${j(a.name, '이가')} 들어왔어요`;
@@ -544,6 +659,7 @@
     // 고양이 출산기(봄~여름): 길에서 오는 고양이 중 아기 고양이 비중이 커진다
     if (!quiet && !opts.returned && !opts.ageDays && D.BREEDS[breedKey].species === 'cat' && rand(s) < D.SEASONS[SIM.season(s.day)].kitten) opts = { ...opts, ageDays: randInt(s, 40, 100) };
     const a = makeAnimal(s, breedKey, quiet, opts);
+    if (opts.how) a.how = opts.how;
     if (quiet || opts.returned || opts.forced) return admit(s, a, events);
     if (s.intakePolicy === 'healthy' && needsCare(a)) { sendAway(s, a, events, 'declined'); return null; }
     if (s.intakePolicy === 'ask') { s.pending.push({ kind: 'intake', animal: a }); return null; }
@@ -563,7 +679,7 @@
     const cs = SIM.combos(s);
     const comboDogs = s.animals.filter((a) => a.species === 'dog' && !a.fat && cs.feed.has(a.home)).length;
     const dogCut = dogs ? 1 - 0.2 * comboDogs / dogs : 1;
-    const store = has(s, 'storage') ? 0.85 : 1;
+    const store = (has(s, 'storage') ? 0.85 : 1) * (upAny(s, 'storage', 2) ? 0.9 : 1);
     const need = {};
     for (const [k, it] of Object.entries(D.ITEMS)) {
       const p = it.per;
@@ -579,7 +695,7 @@
 
   SIM.buy = (s, item, packs, auto) => {
     const it = D.ITEMS[item];
-    const cost = it.price * packs * (auto ? D.AUTO_BUY.markup : 1);
+    const cost = it.price * packs * (auto && !upAny(s, 'storage', 3) ? D.AUTO_BUY.markup : 1);
     if (s.money < cost) return { ok: false, msg: '자금이 부족해요' };
     expense(s, 'items', cost);
     s.inv[item] += it.pack * packs;
@@ -632,14 +748,16 @@
     const n = randInt(s, c.n[0], c.n[1]);
     const keys = Object.keys(D.BREEDS).filter((k) => D.BREEDS[k].species === c.species && D.BREEDS[k].base > 0);
     const breed = weighted(s, keys, (k) => D.BREEDS[k].base);
+    let away = 0;
     for (let i = 0; i < n; i++) {
       const ageDays = c.baby ? randInt(s, 20, 50) : c.senior ? randInt(s, 110, 150) * 30 : undefined;
       const a = makeAnimal(s, breed, false, { ageDays });
+      a.how = 'doorstep';
       if (c.baby) { a.pregnant = false; a.injured = false; a.health = randInt(s, 35, 55); a.trust = randInt(s, 30, 50); }
-      admit(s, a, null);
+      if (!admit(s, a, null)) away++;
     }
     s.stats.doorstep += n;
-    ev.push({ type: 'popup', title: '보호소 앞에 두고 간 아이', body: c.text(n) });
+    ev.push({ type: 'popup', title: '보호소 앞에 두고 간 아이', body: c.text(n) + (away ? `\n${away === n ? '맞는 집에 자리가 없어' : `${away}마리는 자리가 없어`} 이웃 보호소로 보냈어요.` : '') });
     pushFeed(s, '보호소 앞에 동물을 두고 간 일이 또 생겼다', 'warn');
   }
 
@@ -666,6 +784,7 @@
         id: s.nextId++, name: freeName(s), breed: mom.breed, species: mom.species, home: mom.home,
         sex: b.femaleOnly || rand(s) < 0.5 ? 'F' : 'M', neutered: false, vaccinated: false, pregnant: false, dueIn: 0, nursingLeft: 0,
         ageDays: 0, bornHere: true, health: 60, trust: 70, social: 40,
+        story: [`${SIM.dateLabel(s.day).replace(/ · .*$/, '')} 보호소에서 ${mom.name}의 아기로 태어났다`],
         coat: rand(s) < 0.6 ? (mom.coat || 0) : pickCoat(s, mom.breed),
         closed: false, opened: false, days: 0, returned: false, fat: false, dietDays: 0, injured: false, surgeryCost: 0,
       };
@@ -741,7 +860,7 @@
     const gift = Math.round(randInt(s, 10, 30) * D.ADOPT_GIFT_MULT) * 10_000;
     income(s, 'gift', gift);
     s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep : 0);
-    const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1) * (opts.bonded ? D.VISIT.bondReturn : 1);
+    const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1) * (opts.bonded ? D.VISIT.bondReturn : 1) * (upAny(s, 'adoption', 2) ? 0.7 : 1);
     s.album.unshift({ id: a.id, name: a.name, breed: a.breed, coat: a.coat, day: s.day, ageDays: a.ageDays, news: [], next: 0,
       returnDay: willReturn ? s.day + randInt(s, 30, 90) : null, closed: a.closed });
     if (s.album.length > 80) s.album.length = 80;
@@ -766,11 +885,12 @@
     const act = acts[randInt(s, 0, acts.length - 1)].replaceAll('{n}', j(a.name, '이가'));
     s.visitNext = s.day + V.cooldown;
     a.trust = Math.min(100, a.trust + V.trustGain);
+    story(s, a, `${j(fam.name, '과와')} 함께 놀았다`);
     a.social = Math.min(100, a.social + V.socialGain);
     s.visitCount = s.visitCount || {};
     const times = (s.visitCount[fam.name] = (s.visitCount[fam.name] || 0) + 1);
     ev.push({ type: 'visit', animal: a.id, family: fam.name, again: times > 1 });
-    if (rand(s) < V.wantRate * SIM.ageAdopt(a) * (fam.likes === SIM.ageGroup(a).key ? V.likeBoost : 1) * (SIM.decorCombos(s).has('garden') ? 1.1 : 1)) {
+    if (rand(s) < V.wantRate * SIM.ageAdopt(a) * (fam.likes === SIM.ageGroup(a).key ? V.likeBoost : 1) * (SIM.decorCombos(s).has('garden') ? 1.1 : 1) * (upAny(s, 'adoption', 3) ? 1.2 : 1)) {
       s.pending.push({ kind: 'visit', animal: a.id, family: fam.name, act, ready: SIM.isReady(a), issues: SIM.readyIssues(a) });
     } else {
       ev.push({ type: 'toast', text: `${fam.name} 방문: ${act}` });
@@ -814,6 +934,8 @@
         checkNewCombos(s, ev);
       }
     }
+    projectTick(s, ev);
+    goodsTick(s, ev);
     // 계절이 바뀌면 알린다
     if (SIM.season(s.day) !== SIM.season(s.day - 1)) {
       const se = D.SEASONS[SIM.season(s.day)];
@@ -840,11 +962,12 @@
     // 꾸밈·놀이기구 효과(v0.7)
     const dcs = SIM.decorCombos(s);
     const dogDecorHeal = 1 + (decorList(s, 'waterbowl').length ? 0.05 : 0) + (decorList(s, 'shade').length ? 0.05 : 0) + (dcs.has('summer') ? 0.1 : 0);
-    const yardTrain = 1 + (hasYardItem(s, 'aframe') ? D.YARD_ITEMS.aframe.train : 0) + (hasYardItem(s, 'hurdle') ? D.YARD_ITEMS.hurdle.train : 0) + (dcs.has('course') ? 0.2 : 0);
+    const yardTrain = 1 + (hasYardItem(s, 'aframe') ? D.YARD_ITEMS.aframe.train : 0) + (hasYardItem(s, 'hurdle') ? D.YARD_ITEMS.hurdle.train : 0) + (dcs.has('course') || upAny(s, 'yard', 3) ? 0.2 : 0);
     const yardSocial = 1 + (hasYardItem(s, 'tunnel') ? D.YARD_ITEMS.tunnel.social : 0);
     const catTower = decorList(s, 'cattower').length > 0;
     const season = D.SEASONS[SIM.season(s.day)];
     const seasonHeal = season.heal;
+    const rehab = upAny(s, 'clinic', 3);
 
     const births = [];
     for (const a of s.animals) {
@@ -856,7 +979,8 @@
       const fac = s.facilities[a.home];
       const ms = SIM.makeshift(s, a) ? D.EXOTIC.makeshift : 1;   // 전용이 아닌 집(특수동물, 소형견사의 대형견)
       const healBonus = (cs.care.has(fac.id) || cs.catvet.has(fac.id)) ? 1.3 : 1;
-      const decorHeal = (a.species === 'dog' ? dogDecorHeal : 1) * seasonHeal;
+      const heated = (fac.type === 'kennel' || fac.type === 'bigkennel') && SIM.facLevel(fac) >= 2;   // 바닥 난방
+      const decorHeal = (a.species === 'dog' ? dogDecorHeal : 1) * (heated ? Math.max(1, seasonHeal) : seasonHeal) * (rehab ? 1.2 : 1);
       let starving = (a.species === 'dog' && short.dogFood) || (a.species === 'cat' && short.catFood);
       if (a.allergy && a.allergy.known) starving = !!short.hypoFood;
       if (a.allergy && !a.allergy.known && !starving && rand(s) < D.ALLERGY.flare) allergyFlare(s, a, ev);
@@ -868,13 +992,16 @@
       if ((a.species === 'cat' && !short.churu) || (a.species === 'dog' && !a.fat && !short.dogchew)) tg *= 1.2;
       // 산책장 = 훈련장: 개는 산책장에서 훈련받으며 신뢰가 오른다(훈련사가 있으면 더)
       if (a.species === 'dog' && has(s, 'yard')) tg += D.YARD.trainTrust * yardBig * (train > 0 ? D.YARD.trainerBoost : 1) * yardTrain;
+      if (fac.type === 'cattery' && SIM.facLevel(fac) >= 3) tg *= a.closed && !a.opened ? 2 : 1.1;   // 창가 해먹
       a.trust = clamp(a.trust + tg * ms, 0, 100);
       let sg = 0.2 + train * 1.8 / n + care * 0.6 / n + (short.toys ? 0 : 0.15);
       if (a.species === 'dog' && has(s, 'yard')) sg += 0.6 * b.energy * yardBig * (cs.walk.has(fac.id) ? 1.3 : 1) * yardSocial;
       if (a.species === 'cat' && catTower) sg *= 1.1;
       // 활동량이 많은 품종은 뛸 곳이 없으면 사회성이 덜 오른다
       else if (a.species === 'dog' && b.energy > 1) sg -= D.YARD.restless * (b.energy - 1);
-      if (rainy) sg *= 0.5;
+      if (rainy) sg *= upAny(s, 'yard', 2) ? 0.8 : 0.5;   // 잔디 관리
+      if ((fac.type === 'kennel' || fac.type === 'bigkennel') && SIM.facLevel(fac) >= 3) sg *= 1.1;
+      if (fac.type === 'cattery' && SIM.facLevel(fac) >= 2) sg *= 1.15;
       if (a.fat) sg *= D.DIET.socialMult;
       a.social = clamp(a.social + sg * ms, 0, 100);
       if (a.fat && !short.dietFood) {
@@ -884,11 +1011,13 @@
           s.stats.diets++;
           s.reputation += s.intakePolicy === 'care' ? 4 : 2;
           ev.push({ type: 'toast', text: `${a.name} 다이어트 성공! 몸이 가벼워졌어요` });
+          story(s, a, '다이어트에 성공했다');
           pushFeed(s, `${a.name}의 다이어트 전후 사진이 화제다`, 'good');
         }
       }
       if (a.closed && !a.opened && a.trust >= 40) {
         a.opened = true;
+        story(s, a, '처음으로 꼬리를 흔들며 마음을 열었다');
         s.reputation += s.intakePolicy === 'care' ? 6 : 4;
         ev.push({ type: 'popup', title: '마음을 열었어요', body: `${j(a.name, '이가')} 처음으로 꼬리를 흔들었어요.` });
         pushFeed(s, `마음을 닫았던 ${j(a.name, '이가')} 사람 손에 머리를 기댔다`, 'good');
@@ -999,10 +1128,13 @@
     if (phase === 'wave') pIn += 0.2 * s.trend.intensity;
     pIn *= D.INTAKE_RATE * SIM.speciesShare(s) * D.SEASONS[SIM.season(s.day)].intake;   // 여름 휴가철 유기 증가
     for (const b of s.buffs) if (b.intake && b.until > s.day) pIn *= b.intake;   // 바깥 사건으로 몰려드는 아이들
+    if (SIM.projectActive(s, 'rescue')) pIn *= 2.5;
+    // 이웃 도시 연계 구조: 인식이 높아 길에서 오는 아이가 줄어도, 이름난 보호소에는 다른 도시의 부탁이 온다
+    if (s.level >= D.REGION_INTAKE.fromLv) pIn += D.REGION_INTAKE.rate * (s.awareness / 100) * D.INTAKE_RATE * SIM.speciesShare(s);
     // 튜토리얼 중(첫 식구가 오기 전)에는 길에서 오는 아이가 없다
-    const quiet = s.tutorial && s.tutorial.step < 4;
+    const quiet = s.tutorial && s.tutorial.step < 5;
     if (!quiet && rand(s) < Math.min(0.85, pIn)) intakeAnimal(s, chooseBreed(s), false, ev);
-    if (s.subsidy && s.quotaLeft > 0 && rand(s) < 0.15) { s.quotaLeft--; intakeAnimal(s, chooseBreed(s), false, ev, { forced: true }); }
+    if (s.subsidy && s.quotaLeft > 0 && rand(s) < 0.15) { s.quotaLeft--; intakeAnimal(s, chooseBreed(s), false, ev, { forced: true, how: 'forced' }); }
 
     donations(s);
     volunteerApplicants(s, ev);
@@ -1049,7 +1181,11 @@
   function monthly(s, ev) {
     const monthIdx = s.day / DPM;
 
-    income(s, 'donors', s.donors * s.donorFee * (SIM.dateOf(s.day).month === 12 ? D.SEASONS.winter.decGift : 1));   // 연말 후원
+    income(s, 'donors', s.donors * s.donorFee * (SIM.dateOf(s.day - 1).month === 12 ? D.SEASONS.winter.decGift : 1));   // 연말 후원(막 끝난 달이 12월)
+    if (s.money > D.RESERVE.limit) {
+      s.donors = Math.max(0, Math.round(s.donors * (1 - D.RESERVE.donorLoss)));
+      if (rand(s) < 0.3) pushFeed(s, `"${s.shelterName}는 후원금을 쌓아만 둔다"는 글이 돌고 있다. 특수 사업에 써 보자`, 'warn');
+    }
     if (s.corporate && s.corporate.until > s.day) income(s, 'corporate', s.corporate.monthly);
     else if (s.corporate) { s.corporate = null; s.corporateOffered = false; pushFeed(s, '기업 후원 계약이 끝났다', 'calm'); }
     if (s.subsidy) { income(s, 'subsidy', D.SUBSIDY.monthly); s.quotaLeft = D.SUBSIDY.quota; }
@@ -1059,7 +1195,9 @@
     if (shops) {
       const merch = SIM.combos(s).merch.size ? 1.3 : 1;
       const sales = shops * (s.reputation * 2000 + power(s, 'sns') * 40_000 * s.snsMult) * (0.8 + rand(s) * 0.4) * merch;
-      income(s, 'goods', sales);
+      const shopLv = Math.max(...facList(s, 'shop').map(SIM.facLevel));
+      const upSales = sales * (shopLv >= 3 ? 1.6 : shopLv >= 2 ? 1.3 : 1);
+      income(s, 'goods', upSales * (SIM.projectActive(s, 'charity') ? 2 : 1));
       expense(s, 'goodsCost', sales * 0.4);
     }
 
@@ -1067,7 +1205,7 @@
     for (const st of s.staff) salary += SIM.salary(st);
     expense(s, 'salary', salary);
     let upkeep = 0;
-    for (const f of facList(s)) upkeep += D.FACILITIES[f.type].upkeep;
+    for (const f of facList(s)) upkeep += D.FACILITIES[f.type].upkeep * (D.UPKEEP_BY_LV[s.level] || 1);   // 등급이 오르면 운영비도 오른다
     expense(s, 'upkeep', upkeep);
 
     // 대출 상환: 원금 1/12 + 남은 원금의 1%
@@ -1092,7 +1230,7 @@
     s.donors = Math.max(0, s.donors + gain - churn);
     s.stats.donorsPeak = Math.max(s.stats.donorsPeak, s.donors);
     s.awareness = clamp(s.awareness - 1, 10, 100);
-    s.npcRep = s.npcRep.map((r, i) => r + D.NPCS[i].size * (6 + rand(s) * 8) * D.NPC_REP_RATE);
+    s.npcRep = s.npcRep.map((r, i) => { const cap = D.NPC_REP_CAP.base + D.NPCS[i].size * D.NPC_REP_CAP.perSize; return r + D.NPCS[i].size * (6 + rand(s) * 8) * D.NPC_REP_RATE * Math.max(0.05, 1 - r / cap); });
 
     if (monthIdx % 12 === D.TREND.viralMonth - 1) startTrend(s, ev);
     const ph = trendPhase(s);
@@ -1118,7 +1256,7 @@
       s.inv[k] += q;
       ev.push({ type: 'popup', title: '큰 물품 후원 도착', body: `동네 마트에서 ${D.ITEMS[k].name} ${q}${D.ITEMS[k].unit}을 보내왔어요.` });
       s.goodsLog.unshift({ day: s.day, text: `${D.ITEMS[k].name} ${q}${D.ITEMS[k].unit} (마트 후원)` });
-    } else if (r < 0.22) {
+    } else if (r < 0.22 && [6, 7].includes(SIM.dateOf(s.day).month)) {   // 장마는 6~7월에만
       s.buffs.push({ id: 'rain', until: s.day + 15 });
       ev.push({ type: 'toast', text: '장마가 시작됐어요. 보름간 사회성이 덜 올라요' });
     } else if (r < 0.32) {
@@ -1131,7 +1269,7 @@
     s.celebs = s.celebs.filter((c) => c.until > s.day);
 
     // 보호소 앞에 두고 간 아이
-    if (!(s.tutorial && s.tutorial.step < 4) && rand(s) < D.DOORSTEP.monthlyChance) doorstep(s, ev);
+    if (!(s.tutorial && s.tutorial.step < 5) && rand(s) < D.DOORSTEP.monthlyChance) doorstep(s, ev);
 
     // 특수동물 이벤트
     if (D.EXOTIC.enabled && monthIdx >= D.EXOTIC.fromMonth && rand(s) < D.EXOTIC.monthlyChance && !s.pending.some((p) => p.kind === 'exotic')) {
@@ -1139,7 +1277,7 @@
     }
 
     // 기업 후원 제안
-    if (!s.corporate && !s.corporateOffered && s.reputation >= D.CORPORATE.minRep && s.acctFails === 0) {
+    if (!s.corporate && !s.corporateOffered && s.day >= (s.corporateAgain || 0) && s.reputation >= D.CORPORATE.minRep && s.acctFails === 0) {
       s.corporateOffered = true;
       s.pending.push({ kind: 'corporate' });
     }
@@ -1161,12 +1299,14 @@
     } else s.lowFunds = 0;
 
     externalEvent(s, monthIdx, ev);
+    if (s.channel && s.channel.subs) income(s, 'goods', Math.round(s.channel.subs * D.CHANNEL_PAY));   // 채널 수익
+    if (s.goods && s.goods.released.length && has(s, 'shop')) income(s, 'goods', Math.round(SIM.goodsMonthly(s) * (SIM.projectActive(s, 'charity') ? 2 : 1)));
     if (monthIdx % 3 === 0) quarterReport(s, ev);
     if (monthIdx % 12 === 0) {
       const sum = SIM.summary(s);
       s.yearLog.push({ year: sum.year, rescued: sum.rescued, adopted: sum.adopted, donors: sum.donors, money: sum.money, rank: sum.rank });
       // 10년째 결산은 엔딩이 대신한다. 엔딩은 한 번만 나온다
-      if (monthIdx / 12 === D.ENDING.years && !s.ending) {
+      if (monthIdx / 12 >= D.ENDING.years && !s.ending) {
         s.ending = { day: s.day, continued: false };
         ev.push({ type: 'ending', report: SIM.finalReport(s) });
       } else ev.push({ type: 'year', summary: sum });
@@ -1177,7 +1317,7 @@
     const breed = pick(s, D.TREND_BREEDS);
     const delay = randInt(s, D.TREND.waveDelayMonths[0], D.TREND.waveDelayMonths[1]);
     s.trend = {
-      breed, viralDay: s.day, intensity: 1, celebDone: false,
+      breed, viralDay: s.day, intensity: (s.waveDamp || 1) * (SIM.projectActive(s, 'mega') ? 0.5 : 1), celebDone: false,
       waveStart: s.day + delay * DPM,
       waveEnd: s.day + (delay + D.TREND.waveMonths) * DPM,
     };
@@ -1188,7 +1328,8 @@
 
   /* ---------- 분기 보고 ---------- */
   SIM.acctScore = (s) => Math.round(power(s, 'acct') * 3 + (s.quarterFinance ? 15 : 0));
-  SIM.acctRequired = (s) => 8 + Math.floor(Object.values(s.ledger.income).reduce((a, b) => a + b, 0) / 1_000_000) * 3;
+  // 회계 기준: 분기 수입이 커질수록 오르되, 후반에도 넘을 수 있게 완만하게(로그) 오르고 60에서 멈춘다
+  SIM.acctRequired = (s) => Math.min(60, 8 + Math.round(Math.log2(1 + Object.values(s.ledger.income).reduce((a, b) => a + b, 0) / 1_000_000) * 7));
 
   function quarterReport(s, ev) {
     const L = s.ledger;
@@ -1303,11 +1444,13 @@
         pushFeed(s, `${a.name} 수술비 긴급 모금에 ${won(raised)}이 모였다`, 'good');
         ev.push({ type: 'popup', title: '긴급 모금 결과', body: `${won(raised)}이 모였어요. 수술비 ${won(a.surgeryCost)}` });
       }
+      if (upAny(s, 'clinic', 2)) a.surgeryCost = Math.round(a.surgeryCost * 0.7);   // 수술실
       expense(s, 'medical', a.surgeryCost);
       a.injured = false;
       a.health = Math.max(a.health, 40);
       if (s.intakePolicy === 'care') s.reputation += 3;
       ev.push({ type: 'toast', text: `${a.name} 수술 성공! 이제 회복만 남았어요` });
+      story(s, a, '큰 수술을 이겨 냈다');
     } else if (p.kind === 'visit') {
       const a = s.animals.find((x) => x.id === p.animal);
       if (!a) return { ok: true, events: ev };
@@ -1325,7 +1468,7 @@
       const e = D.EXTERNAL.events.find((x) => x.id === p.id);
       const r = e && e.respond;
       if (choice === 'respond' && r) {
-        if (s.money < r.cost) return { ok: false, msg: '자금이 부족해요' };
+        if (s.money < r.cost) { s.pending.unshift(p); return { ok: false, msg: '자금이 부족해요' }; }
         expense(s, 'campaign', r.cost);
         s.donors = Math.round(s.donors * (1 + r.donors));
         s.reputation += r.rep;
@@ -1335,7 +1478,7 @@
       }
     } else if (p.kind === 'memorial') {
       const d = D.DAYS.find((x) => x.id === p.id), o = D.DAY_EVENT[choice === 'party' ? 'party' : 'post'];
-      if (s.money < o.cost) return { ok: false, msg: '자금이 부족해요' };
+      if (s.money < o.cost) { s.pending.unshift(p); return { ok: false, msg: '자금이 부족해요' }; }
       if (o.cost) expense(s, 'campaign', o.cost);
       const add = Math.round(randInt(s, o.donors[0], o.donors[1]) * (1 + power(s, 'sns') * 0.08) * s.snsMult);
       s.donors += add;
@@ -1349,7 +1492,7 @@
       if (choice === 'accept') {
         s.corporate = { until: s.day + D.CORPORATE.months * DPM, monthly: D.CORPORATE.monthly };
         pushFeed(s, '지역 기업과 1년 후원 협약을 맺었다', 'good');
-      } else s.corporateOffered = false;
+      } else { s.corporateOffered = false; s.corporateAgain = s.day + 360; }   // 거절하면 1년 동안 다시 묻지 않는다
     } else if (p.kind === 'forceTransfer') {
       const ids = new Set(extra || []);
       let moved = 0;
@@ -1517,7 +1660,7 @@
     } else {
       s.campaigns.push({ type, until: s.day + c.days });
       if (type === 'school' && s.trend && s.day < s.trend.waveStart) {
-        s.trend.intensity = Math.max(0.2, s.trend.intensity * (1 - D.TREND.schoolCut));
+        s.trend.intensity = Math.max(0.2, s.trend.intensity * (1 - D.TREND.schoolCut * (hasBuff(s, 'lecture') ? 2 : 1)));
         ev.push({ type: 'toast', text: '아이들이 "반짝 인기"의 뒷이야기를 배웠어요. 다가올 물결이 줄어요' });
       }
       const line = { school: '초등학교에서 동물 가족 수업이 열렸다', adoptDay: '이번 주말은 입양의 날! 방문 예약이 몰린다', wishlist: '보호소 필요 물품 목록이 공유되고 있다' }[type];
@@ -1550,6 +1693,32 @@
   };
 
   SIM.setFee = (s, level) => { s.feeLevel = level; return { ok: true }; };
+  // 아이와 직접 교감(지도에서 아이를 눌러서). 종류마다 하루 한 번
+  SIM.interact = (s, id, kind) => {
+    const a = s.animals.find((x) => x.id === id);
+    if (!a) return { ok: false };
+    a.touched = a.touched || {};
+    if (a.touched[kind] === s.day) return { ok: false, msg: '오늘은 이미 했어요. 내일 또 해 주세요' };
+    if (s.touchDay !== s.day) { s.touchDay = s.day; s.touchCount = 0; }
+    if (s.touchCount >= D.TOUCH_PER_DAY) return { ok: false, msg: `오늘은 ${D.TOUCH_PER_DAY}번 다 교감했어요. 내일 또 해 주세요` };
+    if (kind === 'treat') {
+      const item = a.species === 'cat' ? 'churu' : 'dogchew';
+      if (a.fat) return { ok: false, msg: '다이어트 중이라 간식은 참아요' };
+      if ((s.inv[item] || 0) < 1) return { ok: false, msg: `${j(D.ITEMS[item].name, '이가')} 없어요` };
+      s.inv[item]--;
+      a.trust = clamp(a.trust + 3, 0, 100);
+    } else if (kind === 'play') {
+      if ((s.inv.toys || 0) < 0.2) return { ok: false, msg: '장난감이 없어요' };
+      s.inv.toys -= 0.2;
+      a.social = clamp(a.social + 2, 0, 100);
+    } else a.trust = clamp(a.trust + 1, 0, 100);
+    a.touched[kind] = s.day;
+    s.touchCount++;
+    const msg = { pet: `${j(a.name, '이가')} 손에 머리를 기댔어요 (신뢰 +1)`, treat: `${j(a.name, '이가')} 맛있게 먹었어요 (신뢰 +3)`, play: `${j(a.name, '이가')} 신나게 놀았어요 (사회성 +2)` }[kind];
+    if (!a.touched.storied) { story(s, a, `${j(s.player ? s.player.name : '나', '과와')} 처음 놀았다`); a.touched.storied = true; }
+    return { ok: true, msg };
+  };
+
   SIM.setIntakePolicy = (s, k) => { s.intakePolicy = k; return { ok: true }; };
   SIM.setSpeciesPolicy = (s, k) => { if (D.SPECIES_POLICIES[k]) s.speciesPolicy = k; return { ok: true, msg: { both: '이제 강아지와 고양이를 모두 받아요', dog: '이제 강아지만 받아요', cat: '이제 고양이만 받아요' }[s.speciesPolicy] }; };
   SIM.setSubsidy = (s, on) => {
@@ -1576,6 +1745,7 @@
     const spot = (type) => { for (let y = 3; y < s.gridH - 1; y++) for (let x = 2; x < s.gridW; x++) if (SIM.canPlace(s, type, x, y)) return [x, y]; return null; };
     if (wants(s, 'dog') && !Object.values(s.facilities).some((f) => f.type === 'bigkennel')) { const p = spot('bigkennel'); if (p) placeFacility(s, 'bigkennel', ...p); }
     if (wants(s, 'cat') && !Object.values(s.facilities).some((f) => f.type === 'cattery')) { const p = spot('cattery'); if (p) placeFacility(s, 'cattery', ...p); }
+    if (wants(s, 'dog') && !Object.values(s.facilities).some((f) => f.type === 'kennel')) { const p = spot('kennel'); if (p) placeFacility(s, 'kennel', ...p); }
     for (const f of Object.values(s.facilities)) f.buildLeft = 0;
     return SIM.tutorialArrive(s);
   };

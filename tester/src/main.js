@@ -119,7 +119,10 @@
       this.time.addEvent({ delay: 320, loop: true, callback: () => { this.frame ^= 1; this.flipFrames(); } });
       this.setupInput();
       this.fitCamera(true);
-      this.scale.on('resize', () => this.fitCamera(false));
+      // 장면을 다시 시작할 때마다 resize 구독이 쌓이지 않게, 끝날 때 떼어 낸다
+      const onResize = () => this.fitCamera(false);
+      this.scale.on('resize', onResize);
+      this.events.once('shutdown', () => this.scale.off('resize', onResize));
       this.sync(true);
       this.applySeason(SIM.season(state.day));
       this.startTraffic();
@@ -458,7 +461,7 @@
     sync(first) {
       if (!this.facLayer) return;   // 장면이 아직 만들어지기 전(그림 불러오는 중)
       for (const [id, img] of Object.entries(this.facLayer)) {
-        if (!state.facilities[id]) { if (img.label) img.label.destroy(); img.destroy(); delete this.facLayer[id]; }
+        if (!state.facilities[id]) { if (img.label) img.label.destroy(); if (img.stars) img.stars.destroy(); img.destroy(); delete this.facLayer[id]; }
       }
       // 이어 지은 견사는 긴 건물 한 동으로, 이어 지은 산책장은 울타리 마당으로 그린다
       const groups = SIM.groups(state);
@@ -500,7 +503,7 @@
         const base = iso(f.x + n / 2, f.y + n / 2);
         let img = this.facLayer[f.id];
         // 자리·그림이 바뀐 건물(옮김, 이어 짓기)은 다시 세운다
-        if (img && img.sig !== sig && !(f.buildLeft === 0 && img.texture.key === 'iso-construction')) { if (img.label) img.label.destroy(); img.destroy(); img = null; delete this.facLayer[f.id]; }
+        if (img && img.sig !== sig && !(f.buildLeft === 0 && img.texture.key === 'iso-construction')) { if (img.label) img.label.destroy(); if (img.stars) { img.stars.destroy(); img.stars = null; } img.destroy(); img = null; delete this.facLayer[f.id]; }
         if (!img) {
           img = this.add.image(front.x, front.y + 1, key).setOrigin(originX, 1);
           img.fallbackOrigin = originX;
@@ -525,6 +528,12 @@
           this.floatText(base.x, base.y - 60, '완공!', '#e8743b');
         }
         img.box = box;
+        // 업그레이드 별: 건물 앞 꼭짓점 위
+        const lv = SIM.facLevel(f);
+        if (lv > 1 && !hidden && !def.decor) {
+          if (!img.stars) img.stars = this.add.text(0, 0, '', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '13px', color: '#ffd23f', stroke: '#5a3a1e', strokeThickness: 3 }).setOrigin(0.5, 1).setDepth(4990);
+          img.stars.setText('★'.repeat(lv - 1)).setPosition(front.x, front.y - 2);
+        } else if (img.stars) { img.stars.destroy(); img.stars = null; }
         if (f.buildLeft) {
           if (!img.label) img.label = this.add.text(base.x, base.y - 60 * n, '', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '22px', color: '#3b2a20', stroke: '#ffffff', strokeThickness: 5 }).setOrigin(0.5).setDepth(5000);
           img.label.setText(`공사 ${f.buildLeft}일`);
@@ -656,7 +665,8 @@
         const to = { x: spr.x + dir * (40 + Math.random() * 30), y: spr.y + (Math.random() - 0.5) * 24 };
         this.tweens.add({ targets: ball, x: to.x, y: to.y, duration: 650, ease: 'Quad.Out' });
         spr.act = 'fetch'; this.go(spr, to, true);
-        spr.onFetch = () => { ball.destroy(); this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); };
+        spr.prop = ball;
+        spr.onFetch = () => { ball.destroy(); spr.prop = null; this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); };
         return;
       }
       if (kind === 'toys' && a.species === 'cat') {
@@ -667,7 +677,9 @@
           const to = { x: spr.x + dir * (22 + Math.random() * 16), y: spr.y + (Math.random() - 0.5) * 14 };
           this.tweens.add({ targets: yarn, x: to.x, y: to.y, angle: dir * 360, duration: 700, ease: 'Quad.Out' });
           spr.act = 'fetch'; this.go(spr, { x: to.x - dir * 8, y: to.y }, true);
+          spr.prop = yarn;
           spr.onFetch = () => {
+            spr.prop = null;
             this.tweens.add({ targets: yarn, x: yarn.x + dir * 6, duration: 140, yoyo: true, repeat: 3, onComplete: () => yarn.destroy() });
             this.floatText(spr.x, spr.y - 30, '♥', '#e85a7a');
           };
@@ -691,6 +703,8 @@
     }
 
     leave(spr) {
+      if (spr.prop) { spr.prop.destroy(); spr.prop = null; }   // 쫓던 공·털실을 지도에 남기지 않는다
+      spr.onFetch = null;
       this.floatText(spr.x, spr.y - 40, '♥', '#e85a7a');
       const from = { x: spr.px ?? spr.x, y: spr.py ?? spr.y };
       spr.x = from.x; spr.y = from.y;
@@ -889,7 +903,15 @@
           prev[j] = i; q.push(j);
         }
       }
-      if (prev[goal] < 0) return [to];
+      if (prev[goal] < 0) {
+        // 막혀 있으면 갈 수 있는 칸 중 목표에 가장 가까운 칸까지만 간다(건물을 뚫고 지나가지 않게)
+        let near = -1, nd = Infinity;
+        for (let i = 0; i < prev.length; i++) if (prev[i] >= 0) { const d = Math.hypot(i % COLS - tx, ((i / COLS) | 0) - ty); if (d < nd) { nd = d; near = i; } }
+        if (near < 0 || near === start) return [to];
+        const pts2 = [];
+        for (let i = near; i !== start; i = prev[i]) pts2.push(tileCenter(i % COLS, (i / COLS) | 0));
+        return pts2.reverse();
+      }
       const cells = [];
       for (let i = goal; i !== start; i = prev[i]) cells.push(i);
       cells.reverse();
@@ -1048,6 +1070,14 @@
         if (state.money < D.FACILITIES[buildType].cost) setBuild(null);
         return;
       }
+      // 아이를 눌렀으면 아이 카드(그림 몸통 근처를 넉넉히 잡는다)
+      let best = null, bd = 30;
+      for (const spr of Object.values(this.animalSpr)) {
+        if (!spr.active || !spr.visible) continue;
+        const d = Math.hypot(w.x - spr.x, w.y - (spr.y - spr.displayHeight * 0.45));
+        if (d < bd) { bd = d; best = spr; }
+      }
+      if (best) { UI.showAnimal(best.animal.id); return; }
       const f = SIM.facilityAt(state, x, y);
       if (f) UI.showFacility(f);
     }
@@ -1107,6 +1137,17 @@
 
   UI.init({
     onSpeed(v) { speed = v; UI.setSpeed(v); if (scene() && scene().setPaused) scene().setPaused(v === 0); },
+    onInteract(id, kind) {
+      const sc = scene();
+      if (!sc) return;
+      const me = Object.values(sc.staffSpr).find((x) => x.staff.role === 'owner');
+      const a = sc.animalSpr[id];
+      if (!me || !a) return;
+      me.careFor = id;   // '나'가 걸어가서 안아 주거나(쓰다듬기·간식), 곁에서 놀아 준다
+      a.hold = sc.time.now + 6000;
+      sc.go(me, { x: (a.px ?? a.x) + 14, y: (a.py ?? a.y) + 4 });
+      if (kind === 'play') a.act = 'play';
+    },
     onSeason(se) { if (scene() && scene().applySeason) scene().applySeason(se); },
     onModal() { UI.setSpeed(speed); },
     onBuildMode: setBuild,

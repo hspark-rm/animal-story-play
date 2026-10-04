@@ -127,7 +127,8 @@
         UI.event(`${s.year}년차 결산`, `구조 ${s.rescued} · 입양 ${s.adopted} · 이송 ${s.transferred} · 다시 돌아온 아이 ${s.returned}\n정기후원자 ${s.donors}명 · 자금 ${won(s.money)}원\n이웃 보호소 ${s.total}곳 중 ${s.rank}위`);
       }
     }
-    if (UI.sheet) UI.renderSheet();
+    // 열린 시트는 하루마다 통째로 다시 그리지 않는다: 누르고 있는 중이면 건너뛰고, 1.5초에 한 번까지만
+    if (UI.sheet && !UI.pressing && Date.now() - (UI.lastRender || 0) > 1500) { UI.lastRender = Date.now(); UI.renderSheet(); }
   };
 
   // 10년 엔딩: 성과 보고 → 앨범 속 아이들의 한마디 → 계속 운영할지 고르기
@@ -179,7 +180,8 @@ ${b.name}${SIM.coatName(a) ? `(${SIM.coatName(a)})` : ''} ${sexMark(a)} · ${a.s
 중성화 ${a.neutered ? '했어요' : '안 했어요'} · 예방접종 ${a.vaccinated ? '했어요' : '안 했어요'}
 ${flags.join(' · ') || '건강한 편이에요'}
 <span class="note">${b.health}</span><span class="note">지금 자리: ${room}</span>`, [
-        { label: '우리가 맡을게요', run: () => done('accept') },
+        SIM.hasRoom(state, a) ? { label: '우리가 맡을게요', run: () => done('accept') }
+          : { label: '자리가 없어요', note: `${a.species === 'dog' ? (SIM.dogSize(a) === 'small' ? '소형견사' : '대형견사') : '묘사'}를 더 지으면 받을 수 있어요`, disabled: true, run: () => {} },
         { label: '이웃 보호소에 부탁하기', note: '평판 -0.5', ghost: true, run: () => done('decline') },
       ]);
       return;
@@ -370,13 +372,15 @@ ${flags.join(' · ') || '건강한 편이에요'}
     { text: () => `${state.shelterName}에 오신 걸 환영해요!\n위쪽에는 자금·평판·인식·후원자가, 그 아래 띠에는 동네 SNS 소식이 흘러요.\n지도는 두 손가락으로 확대하고 끌어서 옮길 수 있어요.`, target: '#hud', next: true },
     { text: () => '아이들이 지낼 집부터 지어요. 첫 식구는 진도믹스라 대형견사가 필요해요.\n아래 [건설]을 누르고 대형견사의 [짓기]를 고른 뒤, 지도의 빈칸을 눌러요.\n소형견은 소형견사, 중·대형견은 대형견사에서 지내요.',
       target: () => (UI.sheet === 'build' ? '[data-act="build"][data-arg="bigkennel"]' : $('build-hint').hidden ? '[data-sheet="build"]' : '#build-hint'), done: () => has('bigkennel') || !SIM.wants(state, 'dog') },
+    { text: () => '작은 강아지(말티즈·푸들 등)는 소형견사에서 지내요. 소형견사도 하나 지어 두세요.\n[건설] → 소형견사 [짓기] → 빈칸.',
+      target: () => (UI.sheet === 'build' ? '[data-act="build"][data-arg="kennel"]' : $('build-hint').hidden ? '[data-sheet="build"]' : '#build-hint'), done: () => has('kennel') || !SIM.wants(state, 'dog') },
     { text: () => '이번엔 고양이 집, 묘사를 지어요. [건설] → 묘사 [짓기] → 빈칸.',
       target: () => (UI.sheet === 'build' ? '[data-act="build"][data-arg="cattery"]' : $('build-hint').hidden ? '[data-sheet="build"]' : '#build-hint'), done: () => has('cattery') || !SIM.wants(state, 'cat') },
     { text: () => '공사에는 며칠이 걸려요.\n오른쪽 위 빨리 감기 버튼으로 시간을 빠르게 해 보세요.', target: '[data-speed="4"]',
       done: () => (built('bigkennel') || !SIM.wants(state, 'dog')) && (built('cattery') || !SIM.wants(state, 'cat')), after: () => UI.handle(SIM.tutorialArrive(state)) },
     { text: () => '첫 식구가 왔어요!\n[동물]을 눌러 아이들의 건강·신뢰·사회성과 입양까지 남은 일을 확인해 보세요.', target: '[data-sheet="animals"]', done: () => UI.sheet === 'animals' },
     { text: () => '[물품]에서는 사료·모래 재고와 남은 일수를 봐요.\n떨어지면 아이들이 아파요. 자동 구입도 켤 수 있어요.', target: '[data-sheet="goods"]', done: () => UI.sheet === 'goods' },
-    { text: () => `[사람]에는 바로 나, ${state.player.name}이(가) 있어요.\n봉사자 모집과 직원 채용도 여기서 해요.`, target: '[data-sheet="people"]', done: () => UI.sheet === 'people' },
+    { text: () => `[사람]에는 바로 나, ${j(state.player.name, '이가')} 있어요.\n봉사자 모집과 직원 채용도 여기서 해요.`, target: '[data-sheet="people"]', done: () => UI.sheet === 'people' },
     { text: () => '[경영]에서는 입소 기준, 캠페인, 대출, 분기 보고서를 다뤄요.\n분기가 끝나면 아래에 보고서 제출 버튼이 반짝여요.', target: '[data-sheet="manage"]', done: () => UI.sheet === 'manage' },
     { text: () => '안내는 여기까지예요. 완료 선물로 50만원을 드려요.\n아이들 모두 좋은 가족을 만나길!', target: null, next: true, finish: true },
   ];
@@ -412,7 +416,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
   }
   function coachSkip() {
     // 건너뛰면 견사·묘사·첫 식구를 바로 마련하고 안내를 끝낸다(선물은 없음)
-    if (state.tutorial.step < 4) UI.handle(SIM.skipTutorial(state));
+    if (state.tutorial.step < 5) UI.handle(SIM.skipTutorial(state));
     state.tutorial = null;
     setCoachTarget(null);
     $('coach').hidden = true;
@@ -652,7 +656,27 @@ ${flags.join(' · ') || '건강한 편이에요'}
           <p class="version">${UI.versionText}</p>
           ${btn('newGame', '', UI.confirmNew ? '정말 처음부터? 한 번 더 누르면 시작해요' : '새 게임', { ghost: true })}`;
       }
-      return tabs('manage', [['campaign', '캠페인'], ['celeb', '섭외'], ['money', '운영·자금'], ['report', '보고서'], ['rank', '순위']]) + body;
+      if (t === 'project') {
+        // 특수 사업(v0.8): 후반 해금 사업, 유튜브 채널, 굿즈 개발
+        const rows = Object.entries(D.PROJECTS).map(([k, P]) => {
+          const lock = SIM.projectLock(state, k);
+          return `<div class="card"><b>${P.name}</b><span class="note">${won(P.cost)}원${P.days ? ` · ${P.days}일` : ''} · ${P.desc}</span>
+            ${lock ? `<span class="note">${lock}</span>` : `<div class="btns">${btn('project', k, '시작하기', { disabled: state.money < P.cost })}</div>`}</div>`;
+        }).join('');
+        const ch = state.channel ? `<div class="card"><b>유튜브 채널 · 구독자 ${state.channel.subs.toLocaleString()}명</b><span class="note">영상 ${state.channel.videos}편 · 달마다 약 ${won(state.channel.subs * D.CHANNEL_PAY)}원 수익 · 영상은 하루에 하나</span>
+          <div class="btns">${Object.entries(D.VIDEOS).map(([k, v]) => btn('video', k, `${v.name} · ${won(v.cost)}원`, { disabled: state.money < v.cost || state.channel.lastShot === state.day })).join('')}</div>
+          <span class="note">${Object.values(D.VIDEOS).map((v) => `${v.name}: ${v.desc}`).join(' / ')}</span></div>` : '';
+        const G = state.goods || { released: [], dev: null };
+        const next = SIM.goodsNext(state);
+        const hasShop = Object.values(state.facilities).some((f) => f.type === 'shop' && !f.buildLeft);
+        const goods = `<div class="card"><b>굿즈 개발</b><span class="note">${hasShop ? '굿즈샵에서 굿즈를 기획해 출시해요. 앞 단계를 출시하면 다음이 열려요.' : '굿즈샵(Lv4)을 지으면 굿즈를 개발할 수 있어요.'}</span>
+          ${G.released.map((r) => { const g = D.GOODS.find((x) => x.id === r.id); return `<span class="note">· ${g.name} ${'★'.repeat(r.q)}${'☆'.repeat(5 - r.q)}</span>`; }).join('')}
+          ${G.released.length ? `<span class="note">굿즈 판매 월 약 ${won(SIM.goodsMonthly(state))}원</span>` : ''}
+          ${G.dev ? `<span class="note">${D.GOODS.find((x) => x.id === G.dev.id).name} 개발 중 · ${G.dev.left}일 남음</span>`
+            : next && hasShop ? `<div class="btns">${btn('goods', next.id, `${next.name} 개발 · ${won(next.cost)}원 · ${next.days}일`, { disabled: state.money < next.cost })}</div>` : ''}</div>`;
+        body = ch + rows + goods;
+      }
+      return tabs('manage', [['campaign', '캠페인'], ['celeb', '섭외'], ['project', '특수 사업'], ['money', '운영·자금'], ['report', '보고서'], ['rank', '순위']]) + body;
     },
     album() {
       if (!state.album.length) return '<p class="note">아직 입양 간 아이가 없어요. 입양 간 아이들의 소식이 1·3·6·12개월 뒤에 도착해요.</p>';
@@ -688,6 +712,25 @@ ${flags.join(' · ') || '건강한 편이에요'}
     if (type) $('build-hint-text').textContent = type.startsWith('yi:') ? `${j(D.YARD_ITEMS[type.slice(3)].name, '을를')} 놓을 산책장 칸을 누르세요` : `${j(D.FACILITIES[type].name, '을를')} ${D.FACILITIES[type].decor ? '놓을' : '지을'} 칸을 누르세요`;
   };
 
+  // 아이 카드(v0.8): 지도에서 아이를 누르면 상태·이야기·교감 버튼이 나온다
+  UI.showAnimal = (id) => {
+    const a = state.animals.find((x) => x.id === id);
+    if (!a) return;
+    UI.sheet = 'animal';
+    UI.animalId = id;
+    $('sheet').hidden = false;
+    $('sheet-title').textContent = `${a.name} ${a.sex === 'F' ? '♀' : '♂'}`;
+    const home = state.facilities[a.home];
+    const done = (k) => a.touched && a.touched[k] === state.day;
+    const item = a.species === 'cat' ? 'churu' : 'dogchew';
+    $('sheet-body').innerHTML = `${animalRow(a)}
+      <div class="card"><b>지내는 곳</b><span class="note">${home ? D.FACILITIES[home.type].name : '-'}${a.reservedBy ? ` · ${j(esc(a.reservedBy), '이가')} 데리러 오기로 했어요` : ''}</span></div>
+      <div class="card"><b>${esc(a.name)}의 이야기</b>${(a.story || []).map((t) => `<span class="note">· ${esc(t)}</span>`).join('') || '<span class="note">아직 이야기가 없어요</span>'}</div>
+      <div class="btns">${btn('interact', `${a.id}:pet`, done('pet') ? '쓰다듬기 (오늘 함)' : '쓰다듬기', { disabled: done('pet') })}
+      ${btn('interact', `${a.id}:treat`, done('treat') ? '간식 (오늘 함)' : `간식 주기 · ${D.ITEMS[item].name} ${Math.floor(state.inv[item] || 0)}`, { disabled: done('treat') || a.fat || (state.inv[item] || 0) < 1 })}
+      ${btn('interact', `${a.id}:play`, done('play') ? '놀아 주기 (오늘 함)' : '놀아 주기', { disabled: done('play') || (state.inv.toys || 0) < 0.2 })}</div>`;
+  };
+
   UI.showFacility = (f) => {
     const def = D.FACILITIES[f.type];
     const here = state.animals.filter((a) => a.home === f.id);
@@ -696,6 +739,8 @@ ${flags.join(' · ') || '건강한 편이에요'}
     $('sheet-title').textContent = def.name;
     $('sheet-body').innerHTML = `${f.buildLeft ? `<div class="card"><b>공사 중</b><span class="note">${f.buildLeft}일 뒤 완공돼요. 그동안은 쓸 수 없어요.</span></div>` : ''}<p class="note">${def.desc} 유지비 월 ${won(def.upkeep)}원</p>${here.map(animalRow).join('')}
       ${f.type === 'yard' ? SIM.yardItemList(state).filter((it) => SIM.facilityAt(state, it.x, it.y) === f).map((it) => `<div class="row">${SPR.has(D.YARD_ITEMS[it.type].sprite) ? `<img alt="" class="ic" src="${SPR.path(D.YARD_ITEMS[it.type].sprite)}">` : ''}<div class="main"><span class="name">${D.YARD_ITEMS[it.type].name}</span><span class="sub">${D.YARD_ITEMS[it.type].desc}</span></div>${btn('removeItem', `${it.x},${it.y}`, '치우기 (30% 환급)', { ghost: true })}</div>`).join('') : ''}
+      ${D.UPGRADES[f.type] ? `<div class="card"><b>업그레이드 ${'★'.repeat(SIM.facLevel(f))}${'☆'.repeat(D.UPGRADES[f.type].length + 1 - SIM.facLevel(f))}</b>${D.UPGRADES[f.type].map((u, i) => `<span class="note">${i + 2}단계 ${u.name}: ${u.desc}${SIM.facLevel(f) >= i + 2 ? ' ✓' : ''}</span>`).join('')}
+        ${SIM.upgradeInfo(f) ? `<div class="btns">${btn('upgrade', f.id, `${SIM.upgradeInfo(f).name} · ${won(SIM.upgradeInfo(f).cost)}원`, { disabled: state.money < SIM.upgradeInfo(f).cost || !!f.buildLeft })}</div>` : ''}</div>` : ''}
       ${f.type === 'main' ? `<p class="note">본관 ${SIM.mainStage(state)}단계 · 보호소 등급 Lv${D.MAIN_STAGE_LV[1]}·Lv${D.MAIN_STAGE_LV[2]}에 커져요</p>` : ''}
       <div class="btns">${btn('move', f.id, `옮기기 · ${won(SIM.moveCost(f))}원 (건설비 10%)`, { disabled: state.money < SIM.moveCost(f) })}
       ${def.fixed ? '' : btn('demolish', f.id, '철거 (건설비 30% 환급)', { ghost: true })}</div>`;
@@ -705,6 +750,16 @@ ${flags.join(' · ') || '건강한 편이에요'}
   const ACTIONS = {
     build: (a) => { UI.closeSheet(); hooks.onBuildMode(a); return null; },
     demolish: (a) => { const r = SIM.demolish(state, Number(a)); if (r.ok) UI.closeSheet(); return r; },
+    interact: (a) => {
+      const [id, kind] = a.split(':');
+      const r = SIM.interact(state, Number(id), kind);
+      if (r.ok) { if (hooks.onInteract) hooks.onInteract(Number(id), kind); UI.showAnimal(Number(id)); }
+      return r;
+    },
+    upgrade: (a) => { const r = SIM.upgrade(state, Number(a)); if (r.ok) { UI.showFacility(state.facilities[Number(a)]); hooks.onChange(); } return r; },
+    project: (a) => SIM.startProject(state, a),
+    video: (a) => SIM.shootVideo(state, a),
+    goods: () => SIM.developGoods(state),
     removeItem: (a) => { const r = SIM.removeYardItem(state, a); if (r.ok) { UI.closeSheet(); hooks.onChange(); } return r; },
     postJob: (a) => SIM.postJob(state, a),
     hire: (a) => { const [role, i] = a.split(':'); const r = SIM.hireCandidate(state, role, Number(i)); if (r.ok) UI.toast(`${r.name}님이 합류했어요`); return r; },
@@ -773,6 +828,9 @@ ${flags.join(' · ') || '건강한 편이에요'}
       if (!b || b.disabled || !UI.currentChoice) return;
       UI.currentChoice.actions[Number(b.dataset.i)].run();
     });
+    $('sheet-body').addEventListener('pointerdown', () => { UI.pressing = true; });
+    window.addEventListener('pointerup', () => { UI.pressing = false; });
+    window.addEventListener('pointercancel', () => { UI.pressing = false; });
     $('build-cancel').addEventListener('click', () => { hooks.onBuildMode(null); hooks.onMoveMode(null); });
     $('rotate-btn').addEventListener('click', () => hooks.onRotate && hooks.onRotate());
     $('coach-next').addEventListener('click', coachNext);

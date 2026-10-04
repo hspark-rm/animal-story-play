@@ -257,3 +257,6 @@ table.ledger tr.total td { font-weight: 700; border-top: 2px solid var(--edge); 
 #rotate-btn { position: absolute; right: 10px; bottom: 10px; width: 44px; height: 44px; border-radius: 50%; border: 3px solid var(--edge); background: var(--panel); color: var(--ink); font-size: 22px; line-height: 1; box-shadow: 0 3px 0 rgba(40, 28, 20, .3); z-index: 3; }
 #rotate-btn:active { transform: translateY(2px); box-shadow: none; }
 .row img.ic { width: 40px; height: 40px; object-fit: contain; image-rendering: pixelated; flex: none; }
+
+/* 손가락으로 누르기 쉽게(점검 반영): 버튼 높이 44px 이상 */
+.btns .act, .btns button, .tabs button, #sheet-close, .speed button { min-height: 44px; }

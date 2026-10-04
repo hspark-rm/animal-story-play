@@ -9,7 +9,9 @@
     const w = String(word);
     const last = w.replace(/[^가-힣a-zA-Z0-9]+$/, '').slice(-1);
     const code = last.charCodeAt(0) - 0xAC00;
-    const jong = code >= 0 && code <= 11171 ? code % 28 : 0;
+    // 숫자는 읽는 소리로: 0영 1일 3삼 6육 7칠 8팔은 받침 있음(1·7·8은 ㄹ)
+    const digitJong = { 0: 21, 1: 8, 3: 16, 6: 1, 7: 8, 8: 8 };
+    const jong = /[0-9]/.test(last) ? (digitJong[last] || 0) : code >= 0 && code <= 11171 ? code % 28 : 0;
     if (pair === '으로') return w + (jong === 0 || jong === 8 ? '로' : '으로');
     return w + (jong ? pair[0] : pair[1]);
   };
@@ -119,6 +121,52 @@
     arch:      { name: '꽃 아치',      decor: true, lv: 3, days: 0, cost: 200_000, upkeep: 0, mood: 4, h: 64, sprite: 'deco-arch',      desc: '분위기 +4' },
   };
 
+  // 시설 업그레이드(v0.8): 시설마다 2·3단계. 바로 적용되고, 건물 위에 별로 표시한다.
+  // 견사·묘사는 그 건물에 사는 아이에게만, 나머지는 그 단계 이상인 시설이 하나라도 있으면 보호소 전체에 효과
+  DATA.UPGRADES = {
+    kennel:    [{ name: '바닥 난방', cost: 300_000, desc: '겨울에도 건강 회복이 줄지 않아요' }, { name: '개별 놀이 공간', cost: 700_000, desc: '정원 +1 · 사회성 +10%' }],
+    bigkennel: [{ name: '바닥 난방', cost: 400_000, desc: '겨울에도 건강 회복이 줄지 않아요' }, { name: '개별 놀이 공간', cost: 900_000, desc: '정원 +1 · 사회성 +10%' }],
+    cattery:   [{ name: '캣워크',   cost: 300_000, desc: '고양이 사회성 +15%' }, { name: '창가 해먹', cost: 700_000, desc: '신뢰 +10% · 마음 닫은 아이 회복 2배' }],
+    clinic:    [{ name: '수술실',   cost: 1_500_000, desc: '큰 수술 비용 -30%' }, { name: '재활실', cost: 2_500_000, desc: '모든 아이 건강 회복 +20%' }],
+    yard:      [{ name: '잔디 관리', cost: 300_000, desc: '비 오는 날에도 사회성이 덜 줄어요' }, { name: '훈련 코스', cost: 800_000, desc: '어질리티 코스 효과(훈련 +20%)를 늘 받아요' }],
+    adoption:  [{ name: '입양 후 상담', cost: 600_000, desc: '파양 -30%' }, { name: '가족 매칭', cost: 1_200_000, desc: '방문자가 입양을 원할 확률 +20%' }],
+    storage:   [{ name: '냉장 보관', cost: 400_000, desc: '물품 소비 -10%' }, { name: '자동 주문', cost: 800_000, desc: '자동 구입 웃돈 없음' }],
+    shop:      [{ name: '온라인 판매', cost: 1_500_000, desc: '굿즈 매출 +30%' }, { name: '굿즈 공방', cost: 3_000_000, desc: '굿즈 매출 +30% 더' }],
+  };
+
+  // 특수 사업(v0.8): 후반 해금. 큰돈이 드는 기간제 사업으로 후반 자금의 쓸 곳이 된다.
+  // need = 해금 조건(등급·누적 입양·인식). cool = 끝난 뒤 다시 할 수 있기까지 일수
+  DATA.PROJECTS = {
+    channel:  { name: '유튜브 채널 개설', need: { lv: 4, adopted: 80 }, cost: 3_000_000, days: 0, once: true,
+                desc: '보호소 채널을 열어요. 영상을 찍을 때마다 구독자와 인식이 오르고, 구독자 수만큼 달마다 수익이 나요.' },
+    lecture:  { name: '대중 강연', need: { lv: 4, adopted: 150 }, cost: 1_000_000, days: 7, cool: 60,
+                desc: '인식 +6 · 30일간 학교 교육 효과 2배' },
+    charity:  { name: '자선 행사(바자회·걷기 대회)', need: { lv: 4, adopted: 200 }, cost: 5_000_000, days: 14, cool: 120,
+                desc: '끝나면 큰 모금과 정기후원자 유입 · 행사 동안 굿즈 매출 2배' },
+    mega:     { name: '대규모 인식개선 사업', need: { lv: 5, adopted: 300 }, cost: 10_000_000, days: 90, cool: 180,
+                desc: '인식 +15(기간 동안 차츰) · 진행 중 시작되는 유행의 유기 물결 절반' },
+    rescue:   { name: '대대적 구조 작전', need: { lv: 5, adopted: 250 }, cost: 8_000_000, days: 30, cool: 120,
+                desc: '30일간 보호 요청 2.5배 · 구조할 때마다 평판 +1. 자리를 넉넉히 마련하고 시작하세요' },
+    farm:     { name: '무허가 번식장 정리 지원', need: { lv: 5, aware: 80, adopted: 350 }, cost: 15_000_000, days: 60, cool: 360,
+                desc: '쉴 틈 없이 새끼를 낳아야 했던 곳이 문을 닫도록 돕고, 남겨진 아이들을 받아요. 이후 유기 물결이 영구히 줄어요(×0.6)' },
+  };
+  DATA.VIDEOS = {
+    review: { name: '입양 후기 영상', cost: 500_000, subs: [800, 2000], aware: 1, desc: '입양 간 아이가 많을수록 잘 돼요' },
+    vlog:   { name: '보호소 하루 브이로그', cost: 300_000, subs: [400, 1200], aware: 1, desc: '분위기가 좋을수록 잘 돼요' },
+    train:  { name: '훈련 영상', cost: 600_000, subs: [600, 1800], aware: 2, desc: '훈련사가 있으면 잘 돼요' },
+  };
+  DATA.CHANNEL_PAY = 4;   // 구독자 1명당 월 수익(원)
+
+  // 굿즈 개발(v0.8): 굿즈샵이 있으면 직접 기획해 출시한다. 앞 단계를 출시해야 다음이 열린다.
+  // 완성도 ★1~5는 SNS 능력치와 운으로 정해지고, 달마다 base × 완성도/3 × 평판 보정만큼 팔린다
+  DATA.GOODS = [
+    { id: 'sticker',   name: '스티커',   cost: 300_000,   days: 7,  base: 150_000 },
+    { id: 'ecobag',    name: '에코백',   cost: 800_000,   days: 14, base: 350_000 },
+    { id: 'calendar',  name: '달력',     cost: 1_500_000, days: 21, base: 600_000 },
+    { id: 'plush',     name: '인형',     cost: 3_000_000, days: 30, base: 1_000_000 },
+    { id: 'photobook', name: '입양 사진집', cost: 5_000_000, days: 45, base: 1_600_000 },
+  ];
+
   // 산책장 놀이기구(v0.7): 완공된 산책장 칸 위에만 놓는다(칸당 하나). 개는 그 위를 그대로 지나다닌다
   DATA.YARD_ITEMS = {
     aframe: { name: '어질리티 A프레임', cost: 250_000, mood: 1, h: 34, sprite: 'deco-aframe', train: 0.10, desc: '산책장 훈련 효과 +10%' },
@@ -177,7 +225,7 @@
     mistakeRate: 0.05,                  // 돌봄 0·레벨 1 기준 하루 실수 확률
     mistakes: {
       overfeed: { text: (v, a) => `${v}님이 다이어트 중인 ${a}에게 일반 사료를 듬뿍 줬어요`, effect: '다이어트가 닷새 뒤로 밀렸어요' },
-      leash:    { text: (v, a) => `${v}님이 산책 줄을 놓쳐 ${a}와 한바탕 술래잡기를 했어요`, effect: '놀란 아이의 신뢰가 조금 떨어졌어요' },
+      leash:    { text: (v, a) => `${v}님이 산책 줄을 놓쳐 ${j(a, '과와')} 한바탕 술래잡기를 했어요`, effect: '놀란 아이의 신뢰가 조금 떨어졌어요' },
       bag:      { text: (v) => `${v}님이 사료 봉지를 열어 둔 채 퇴근했어요`, effect: '사료가 눅눅해져 일부를 버렸어요' },
       snack:    { text: (v, a) => `${v}님이 ${a}에게 간식을 몰래 너무 많이 줬어요`, effect: '배탈이 나서 건강이 조금 떨어졌어요' },
     },
@@ -355,6 +403,14 @@
   // 아이가 절반으로 줄면 입양도 줄어든다. 동네 전체에 아이가 줄었으니 이웃 보호소 평판 성장도 줄이고,
   // 입양 한 건의 후원 선물을 늘려 수입을 맞춘다(1년 시뮬레이션 10판으로 맞춤)
   DATA.NPC_REP_RATE = 0.8;
+  // 후반 균형(2026-10-04 점검 반영): 적립금이 너무 많으면 "후원금을 왜 안 쓰나" 비판으로 후원자가 조금씩 떠나고,
+  // 등급이 오르면 운영비가 오른다. 인식이 높아 길에서 오는 아이가 줄면 이웃 도시 연계 구조 요청이 대신 온다
+  DATA.RESERVE = { limit: 100_000_000, donorLoss: 0.02 };
+  DATA.UPKEEP_BY_LV = [1, 1, 1.1, 1.2, 1.35, 1.5];
+  DATA.REGION_INTAKE = { fromLv: 4, rate: 0.12 };
+  DATA.TOUCH_PER_DAY = 3;   // 아이 카드에서 하루에 할 수 있는 교감 횟수(모든 아이 합쳐서)
+  // 이웃 보호소 평판은 끝없이 오르지 않고 규모에 맞는 상한으로 다가간다(10년 후반 순위 붕괴 방지)
+  DATA.NPC_REP_CAP = { base: 500, perSize: 220 };
   DATA.ADOPT_GIFT_MULT = 1.5;
 
   // 받는 아이 종류(시작 화면에서 고르고, 경영 탭에서 언제든 바꾼다). 한 종만 받으면 길에서 오는 빈도는
