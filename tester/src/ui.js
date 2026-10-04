@@ -64,7 +64,9 @@
       rb.classList.toggle('urgent', left <= 3);
     }
     const f = state.feed.find((x) => x.cat !== 'adopt');   // 입양 소식은 오른쪽 위 팝업으로 따로 보인다(v0.16)
-    if (f && $('ticker-text').textContent !== f.text) {
+    // 오른쪽 위 팝업이 떠 있는 동안에는 SNS 띠를 바꾸지 않는다(둘이 함께 깜박이면 정신없다, v0.17.3)
+    const busy = $('notify') && $('notify').children.length > 0;
+    if (f && !busy && $('ticker-text').textContent !== f.text) {
       $('ticker-text').textContent = f.text;
       $('ticker').classList.remove('flash'); void $('ticker').offsetWidth; $('ticker').classList.add('flash');
     }
@@ -147,6 +149,7 @@
       $('event-card').focus();
     } else {
       $('modal-title').textContent = m.title;
+      $('modal').querySelector('.box').className = 'box' + (m.cls ? ` ${m.cls}` : '');   // 편지처럼 따로 꾸미는 창
       $('modal-body').innerHTML = m.html;
       $('modal-actions').innerHTML = m.actions.map((a, i) => `<button type="button" data-i="${i}" class="${a.ghost ? 'ghost' : ''}" ${a.disabled ? 'disabled' : ''}>${a.label}${a.note ? `<small>${a.note}</small>` : ''}</button>`).join('');
       UI.currentChoice = m;
@@ -165,7 +168,7 @@
     if (!UI.modalOpen) UI.askPending();
     hooks.onChange();
   }
-  function choice(title, html, actions, onShow) { queue.push({ type: 'choice', title, html, actions, onShow }); pump(); }
+  function choice(title, html, actions, onShow, cls) { queue.push({ type: 'choice', title, html, actions, onShow, cls }); pump(); }
 
   /* ---------- 사건 처리 ---------- */
   UI.handle = (events) => {
@@ -173,7 +176,7 @@
       if (e.type === 'toast') UI.toast(e.text);
       else if (e.type === 'adopt') UI.notify(e, '새 가족을 만났어요', e.family ? `${esc(e.family)}의 가족이 됐어요` : esc(e.text));
       else if (e.type === 'adoptNews') { if (e.milestone || Math.random() < 0.25) UI.notify(e, `${esc(e.name)} 소식`, esc(e.text)); }   // 매일 뜨지 않게: 1주년 소식과 일부만
-      else if (e.type === 'letter') UI.notify(e, '편지가 왔어요', `${esc(e.name)}의 가족이 보냈어요 · 눌러서 읽기`, () => UI.event(`${e.name}의 가족에게서 온 편지`, `${e.body}\n\n— ${e.from}`));
+      else if (e.type === 'letter') { UI.notify(e, '편지가 왔어요', `${esc(e.name)}의 가족이 보냈어요 · 눌러서 다시 읽기`, () => showLetter(e)); showLetter(e); }   // 알림과 함께 가운데 편지 창
       else if (e.type === 'popup') UI.event(e.title, e.body);
       else if (e.type === 'quarter') showReport(e.report, e.prev, true);
       else if (e.type === 'ending') showEnding(e.report);
@@ -199,6 +202,17 @@
 <span class="note">다음에는 물품 자동 구입, 직원 수, 대출 시기를 먼저 살펴보세요.</span>`, [
       { label: '처음부터 다시 하기', run: () => { closeOverlay(); hooks.onNewGame(); } },
     ]);
+  }
+
+  // 감사 편지 창(v0.17.3): 편지지 모양, 손글씨 글꼴, 아이 그림. 감성 포인트라 게임 시간을 멈추고 가운데 띄운다
+  function showLetter(e) {
+    choice(`✉ ${e.name}의 가족에게서 온 편지`, `<div class="letter-art" id="letter-art"></div><div class="letter-paper">${esc(e.body).replace(/\n/g, '<br>')}<span class="letter-from">— ${esc(e.from)}</span></div>`, [
+      { label: '마음에 담아 두기', run: () => closeOverlay() },
+      { label: '앨범에서 보기', ghost: true, run: () => { closeOverlay(); UI.tab.album = 'letter'; UI.openSheet('album'); } },
+    ], () => {
+      const P = G.POSE, box = $('letter-art');
+      if (box && P && P.has(e.breed)) { const c = P.portrait(e.breed, 'wag-0', SIM.coatTint({ breed: e.breed, coat: e.coat }), 2); if (c) box.appendChild(c); }
+    }, 'letter-box');
   }
 
   // 10년 엔딩: 성과 보고 → 앨범 속 아이들의 한마디 → 계속 운영할지 고르기

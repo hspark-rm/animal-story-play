@@ -2,7 +2,8 @@
 // 지도는 비대칭 아이소메트릭(마름모 바닥)으로 그린다. 논리 격자(x, y)는 그대로 두고 화면 좌표만 바꾼다.
 (function (G) {
   const D = G.DATA, SIM = G.SIM, SPR = G.SPR, UI = G.UI, POSE = G.POSE;
-  const WALK = 0.6;   // 걷는 속도 배율(v0.16): 천천히 보며 쉬는 게임이 되도록 사람·동물 모두 느리게
+  const WALK = 0.6;    // 걷는 속도 배율(v0.16): 천천히 보며 쉬는 게임이 되도록 사람·동물 모두 느리게
+  const INSET = 0.95;  // 단독 건물 크기 배율(칸 가운데 기준): 건물 사이 한 칸 여백 규칙과 함께 처마가 맞닿지 않게
   // 바닥 격자의 두 축. 건물 그림이 정면 대칭이 아니라 왼쪽 앞에서 본 각도로 그려져 있어서,
   // 그림 속 산책장 울타리에서 잰 기울기에 맞춘다(x축 0.367, y축 0.62, 가로폭 57:43)
   const AX = 56, AXY = 56 * 0.367;   // x가 1 늘 때: 오른쪽으로 AX, 아래로 AXY
@@ -529,11 +530,15 @@
         }
         // 바닥보다 GAP만큼 안쪽에 세운다: 앞 꼭짓점을 안으로 당기고 폭을 줄인다
         const def = D.FACILITIES[f.type];
-        const front = def.decor ? iso(f.x + 0.5, f.y + 0.68) : iso(box.x1 - GAP, box.y1 - GAP);   // 꾸밈은 칸 가운데 조금 앞에 선다
+        let front = def.decor ? iso(f.x + 0.5, f.y + 0.68) : iso(box.x1 - GAP, box.y1 - GAP);   // 꾸밈은 칸 가운데 조금 앞에 선다
+        // 단독 건물은 칸 가운데를 기준으로 INSET만큼 작게 그려 이웃 건물과 사이를 둔다(처마·현관이 맞닿아 겹치던 문제, v0.17.3).
+        // 이어 지은 긴 견사·묘사는 한 그림이라 그대로 둔다
+        const inset = !def.decor && !/-\d[xy]$/.test(key) ? INSET : 1;
+        if (inset !== 1) { const c = iso((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2); front = { x: c.x + (front.x - c.x) * inset, y: c.y + (front.y - c.y) * inset }; }
         const width = (box.x1 - box.x0 - 2 * GAP) * AX + (box.y1 - box.y0 - 2 * GAP) * AY;
         const sizeFac = (img) => {
           if (def.decor && SPR.has(key)) { originM(img, 0.5, 1); fitHeight(img, def.h); return; }
-          if (FIT[key]) { img.setScale(0.5); return; }   // 격자에 맞게 편 그림은 크기도 이미 맞다
+          if (FIT[key]) { img.setScale(0.5 * inset); return; }   // 격자에 맞게 편 그림은 크기도 이미 맞다(단독 건물은 여백만큼 작게)
           fitWidth(img, width);
           const a = ANCHOR[key];
           if (a && a[2] === 'left') img.setScale((box.x1 - box.x0 - 2 * GAP) * AX / a[0]);
@@ -574,7 +579,8 @@
           for (const o of img.upg || []) o.destroy();
           img.upg = [];
           img.upgLv = want;
-          const put = (key, x, y, h) => { if (!SPR.has(key)) return; const p = iso(x, y); const o = this.add.image(p.x, p.y, key).setOrigin(0.5, 1); fitHeight(o, h); img.upg.push(o); };
+          // 꾸밈마다 작은 바닥 상자를 줘서 건물들과 함께 앞뒤를 정렬한다(뒤 건물 꾸밈이 앞 건물 지붕 위에 그려지지 않게)
+          const put = (key, x, y, h) => { if (!SPR.has(key)) return; const p = iso(x, y); const o = this.add.image(p.x, p.y, key).setOrigin(0.5, 1); fitHeight(o, h); o.box = { x0: x - 0.12, y0: y - 0.12, x1: x + 0.12, y1: y + 0.12 }; img.upg.push(o); };
           if (want >= 2) { put('deco-planter', f.x + n * 0.3, f.y + n + 0.12, 15); put('deco-flowers', f.x + n + 0.12, f.y + n * 0.3, 13); }
           if (want >= 3) { put('deco-lamp', f.x + n + 0.1, f.y + n + 0.1, 30); put('deco-flowerbed', f.x + n * 0.7, f.y + n + 0.14, 11); put('deco-planter', f.x + n + 0.12, f.y + n * 0.7, 15); }
         }
@@ -1040,7 +1046,7 @@
     // 건물·앞 울타리의 앞뒤 순서: 바닥 상자로 위상 정렬한다(긴 건물도 맞게 가린다).
     // A가 B의 뒤 = A의 앞쪽 끝이 B의 뒤쪽 끝보다 뒤(x 또는 y). 서로 대각선이면 겹치지 않으므로 순서를 두지 않는다
     sortDepths() {
-      const nodes = [...Object.values(this.facLayer).filter((o) => o.visible), ...(this.yardObjs || []).filter((o) => o.box),
+      const nodes = [...Object.values(this.facLayer).filter((o) => o.visible), ...Object.values(this.facLayer).flatMap((o) => (o.visible && o.upg) || []), ...(this.yardObjs || []).filter((o) => o.box),
         ...(this.itemObjs || []), ...(this.fenceObjs || [])];
       const behind = (a, b) => (a.box.x1 <= b.box.x0 + 1e-6 || a.box.y1 <= b.box.y0 + 1e-6);
       const n = nodes.length, indeg = new Array(n).fill(0), next = nodes.map(() => []);
@@ -1058,7 +1064,7 @@
         for (const j of next[i]) if (!--indeg[j]) ready.push(j);
       }
       for (let i = 0; i < n; i++) if (!order.includes(i)) order.push(i);   // 순환이 있으면 앞 꼭짓점 순서로
-      order.forEach((i, r) => { nodes[i].setDepth(100 + r * 4); (nodes[i].upg || []).forEach((o, k) => o.setDepth(100 + r * 4 + 1 + k * 0.1)); });   // 업그레이드 꾸밈은 건물 바로 앞
+      order.forEach((i, r) => nodes[i].setDepth(100 + r * 4));   // 업그레이드 꾸밈도 노드라 함께 정렬된다
       this.sorted = nodes.map((o) => ({ o, box: o.box, b: o.getBounds() }));
     }
 

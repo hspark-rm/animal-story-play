@@ -87,7 +87,7 @@
     s.staff.push({ id: s.nextId++, name: s.player.name, role: 'owner', gender: s.player.gender, level: 1, exp: 0, stats: { ...D.OWNER.stats[s.career] } });
     placeMain(s);
     if (!s.tutorial) {
-      if (wants(s, 'dog')) { placeFacility(s, 'bigkennel', 3, 4); placeFacility(s, 'kennel', 3, 5); }
+      if (wants(s, 'dog')) { placeFacility(s, 'bigkennel', 3, 4); placeFacility(s, 'kennel', 3, 6); }   // 건물 사이 한 칸 여백(v0.17.3)
       if (wants(s, 'cat')) placeFacility(s, 'cattery', 5, 5);
       if (C.extra.includes('yard')) placeFacility(s, 'yard', 2, 5);
       if (wants(s, 'dog')) intakeAnimal(s, 'jindo', true);
@@ -176,7 +176,22 @@
   };
   SIM.cellsOf = (f) => cellsOf(f.type, f.x, f.y);
   // 지을 수 있는 자리인가: 모든 칸이 부지 안(길 제외)이고 비어 있어야 한다
-  SIM.canPlace = (s, type, x, y) => cellsOf(type, x, y).every(([cx, cy]) => cx >= 0 && cy >= 0 && cx < s.gridW && cy < s.gridH - 1 && !s.grid[idx(s, cx, cy)]);
+  const cellsFree = (s, type, x, y) => cellsOf(type, x, y).every(([cx, cy]) => cx >= 0 && cy >= 0 && cx < s.gridW && cy < s.gridH - 1 && !s.grid[idx(s, cx, cy)]);
+  // 건물 사이 여백(v0.17.3): 서로 다른 건물은 변이 맞닿지 않게 한 칸 띄운다(아이소메트릭에서 앞 건물이 옆 건물을 가려 겹쳐 보였다).
+  // 같은 종류로 이어 짓는 견사·묘사 줄, 산책장, 꾸밈은 붙여도 된다. 모서리끼리 닿는 것은 괜찮다
+  SIM.spacingOk = (s, type, x, y) => {
+    const def = D.FACILITIES[type];
+    if (def.decor || type === 'yard') return true;
+    const mine = new Set(cellsOf(type, x, y).map(([cx, cy]) => `${cx},${cy}`));
+    for (const [cx, cy] of cellsOf(type, x, y)) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (mine.has(`${cx + dx},${cy + dy}`)) continue;
+      const g = SIM.facilityAt(s, cx + dx, cy + dy);
+      if (!g || g.type === 'yard' || D.FACILITIES[g.type].decor || (g.type === type && D.MERGE[type])) continue;
+      return false;
+    }
+    return true;
+  };
+  SIM.canPlace = (s, type, x, y) => cellsFree(s, type, x, y) && SIM.spacingOk(s, type, x, y);
   SIM.facilityAt = (s, x, y) => {
     if (x < 0 || y < 0 || x >= s.gridW || y >= s.gridH) return null;
     const id = s.grid[idx(s, x, y)];
@@ -201,7 +216,7 @@
     const cx = Math.floor(s.gridW / 2) - 1;
     const tries = [];
     for (let y = 0; y < s.gridH - 2; y++) for (let d = 0; d < s.gridW; d++) for (const x of [cx - d, cx + d]) tries.push([x, y]);
-    const spot = tries.find(([x, y]) => SIM.canPlace(s, 'main', x, y));
+    const spot = tries.find(([x, y]) => cellsFree(s, 'main', x, y));   // 본관 자리 찾기는 여백 규칙 없이(예전 저장 호환)
     if (spot) placeFacility(s, 'main', spot[0], spot[1]);
   }
 /* ---------- 분점: 맞바꾸기 (v0.9.1) ---------- */
@@ -268,7 +283,7 @@
     s.sites[no] = { facilities: {}, grid: Array(L.cols * L.rows).fill(null), gridW: L.cols, gridH: L.rows, land: 0, animals: [], staff: [], yardItems: {},
       siteId: no, siteName: `${no}호점`, siteTrait: trait };
     SIM.withSite(s, no, () => {
-      for (const [type, x, y] of T.layout) if (SIM.canPlace(s, type, x, y)) placeFacility(s, type, x, y);
+      for (const [type, x, y] of T.layout) if (cellsFree(s, type, x, y)) placeFacility(s, type, x, y);   // 튜토리얼 배치는 정해진 자리
       // 점장 한 명과 돌봄 담당 두 명이 함께 시작한다
       s.staff.push({ id: s.nextId++, name: personName(s), role: 'manager', title: '점장', level: 2, exp: 0, stats: { care: 4, heal: 1, train: 2, groom: 2, acct: 5, sns: 2 } });
       for (let i = 0; i < 2; i++) s.staff.push({ id: s.nextId++, name: personName(s), role: 'carer', level: 1, exp: 0, stats: { care: 5, heal: 1, train: 1, groom: 1, acct: 0, sns: 0 } });
@@ -1881,6 +1896,7 @@
     const f = D.FACILITIES[type];
     if (f.fixed) return { ok: false, msg: '본관은 하나뿐이에요' };
     if (f.lv > s.level) return { ok: false, msg: `보호소 등급 Lv${f.lv}부터 지을 수 있어요` };
+    if (cellsFree(s, type, x, y) && !SIM.spacingOk(s, type, x, y)) return { ok: false, msg: '다른 건물과 한 칸 떨어져야 해요 (같은 집은 이어 지을 수 있어요)' };
     if (!SIM.canPlace(s, type, x, y)) return { ok: false, msg: SIM.size(type) > 1 ? `${SIM.size(type)}×${SIM.size(type)}칸 빈자리가 필요해요 (누른 칸이 왼쪽 위)` : '이미 시설이 있어요' };
     if (s.money < f.cost) return { ok: false, msg: '자금이 부족해요' };
     expense(s, 'facility', f.cost);

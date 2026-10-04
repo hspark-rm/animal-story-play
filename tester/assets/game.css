@@ -296,3 +296,9 @@ details.memo { margin: 2px 0; }
 .stat-bars { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: center; }
 .stat-bars .main-stat { font-weight: 700; }
 .stat-bars .num { font-variant-numeric: tabular-nums; min-width: 1.5em; text-align: right; }
+
+/* 감사 편지 창(v0.17.3) */
+#modal .box.letter-box { background: #fffaf1; background-image: repeating-linear-gradient(transparent 0 27px, rgba(160, 120, 90, .18) 27px 28px); border-color: #b98a6a; }
+.letter-art { display: flex; justify-content: center; margin-bottom: 6px; }
+.letter-paper { font-family: 'Gaegu', var(--display), cursive; font-size: 19px; line-height: 28px; color: #5a3b2a; padding: 4px 6px 2px; }
+.letter-from { display: block; text-align: right; margin-top: 8px; font-weight: 700; }
