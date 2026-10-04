@@ -7,7 +7,7 @@
   // 시험 모드(v0.12): 주소에 ?test가 있으면 켜진다. ?test&auto면 선택 창·사건 카드를 자동 처리해 멈추지 않는다.
   // 저장 칸을 따로 써서 테스터의 실제 저장을 덮지 않는다
   const Q = new URLSearchParams(location.search);
-  G.TEST = Q.has('test'); G.TEST_AUTO = G.TEST && Q.has('auto');
+  G.TEST = Q.has('test'); G.TEST_AUTO = G.TEST && Q.has('auto'); G.TEST_SCENARIO = Q.get('scenario') || ''; G.TEST_BOT = G.TEST_AUTO && Q.has('bot');   // &bot: 시험 봇이 짓고 채용한다(SIM.botAct)
   G.TESTLOG = { events: [], choices: [], errors: [] };
   const SAVE_KEY = 'animal-story-save-v2' + (G.TEST ? '-test' : '');
 
@@ -153,6 +153,8 @@
       else if (e.type === 'popup') UI.event(e.title, e.body);
       else if (e.type === 'quarter') showReport(e.report, e.prev, true);
       else if (e.type === 'ending') showEnding(e.report);
+      else if (e.type === 'closure') { if (G.TESTLOG) G.TESTLOG.closures = (G.TESTLOG.closures || 0) + 1; showClosure(e.report); }
+      else if (e.type === 'emote') { if (hooks.onEmote) hooks.onEmote(e.id, e.key); }
       else if (e.type === 'visit') { if (hooks.onVisit) hooks.onVisit(e.animal, e.family, e.again); }
       else if (e.type === 'season') { if (hooks.onSeason) hooks.onSeason(e.season); }
       else if (e.type === 'year') {
@@ -163,6 +165,16 @@
     // 열린 시트는 하루마다 통째로 다시 그리지 않는다: 누르고 있는 중이면 건너뛰고, 1.5초에 한 번까지만
     if (UI.sheet && !UI.pressing && Date.now() - (UI.lastRender || 0) > 1500) { UI.lastRender = Date.now(); UI.renderSheet(); }
   };
+
+  // 폐업 엔딩(v0.14): 자금 마이너스가 이어져 문을 닫았다. 어두운 묘사 없이, 아이들은 이웃 보호소로 옮겨 갔다고만 적는다
+  function showClosure(r) {
+    choice('보호소가 문을 닫았어요', `${icon('event', 'funds') || ''}<span class="end-title">${esc(state.shelterName)} · ${r.years || Math.floor(state.day / 360) + 1}년차</span>
+<span class="note">자금이 여러 달 마이너스로 이어져 더는 버틸 수 없었어요. 남은 아이들은 이웃 보호소들이 나눠 맡기로 했어요.</span>
+<span class="end-grid"><span>구조한 아이</span><b>${r.rescued}</b><span>새 가족을 만난 아이</span><b>${r.adopted}</b><span>남은 빚</span><b>${won(-state.money)}원</b></span>
+<span class="note">다음에는 물품 자동 구입, 직원 수, 대출 시기를 먼저 살펴보세요.</span>`, [
+      { label: '처음부터 다시 하기', run: () => { closeOverlay(); hooks.onNewGame(); } },
+    ]);
+  }
 
   // 10년 엔딩: 성과 보고 → 앨범 속 아이들의 한마디 → 계속 운영할지 고르기
   function showEnding(r) {
@@ -205,7 +217,10 @@
     if (G.TEST_AUTO) {
       // 자동 시험: 밸런스 시험과 같은 규칙으로 고른다(돈이 모자라 되돌려진 선택은 건너뛴다)
       for (let guard = 0; state.pending.length && guard < 50; guard++) {
-        const q = state.pending[0], c = SIM.botChoice(state, q);
+        const q = state.pending[0];
+        // 시험 시나리오: noautobuy면 물품 경고가 떠도 자동 구입을 켜지 않는다
+        const c = q.kind === 'stockout' && G.TEST_SCENARIO === 'noautobuy' ? 'off' : SIM.botChoice(state, q);
+        if (q.kind === 'stockout') G.TESTLOG.stockout = (G.TESTLOG.stockout || 0) + 1;
         const r = SIM.resolve(state, c);
         G.TESTLOG.choices.push([state.day, q.kind, c]);
         if (state.pending[0] === q) state.pending.shift();
@@ -287,6 +302,11 @@ ${flags.join(' · ') || '건강한 편이에요'}
       choice(`오늘은 ${d.name}`, `${icon('animal', d.species === 'cat' ? 'korshort' : 'jindo')}\n${d.text}`, [
         { label: `기념 행사 열기 (${won(P.cost)}원)`, note: `${P.days}일간 ${who} 입양 ×${P.adopt} · 후원자·인식 상승`, disabled: state.money < P.cost, run: () => done('party') },
         { label: 'SNS에 소개 글만 올리기', note: `${Q.days}일간 ${who} 입양 ×${Q.adopt}`, ghost: true, run: () => done('post') },
+      ]);
+    } else if (p.kind === 'stockout') {
+      choice('물품이 떨어졌어요', `${p.items.map((k) => D.ITEMS[k].name).join(' · ')}이(가) 바닥났어요. 물품이 없으면 아이들 건강과 위생이 떨어지고, 회계 보고와 평판에도 영향을 줘요.\n물품 자동 구입을 켜면 모자라기 전에 알아서 사 둬요.`, [
+        { label: '자동 구입 켜기', note: '[물품] 탭에서 언제든 끌 수 있어요', run: () => done('on') },
+        { label: '직접 챙길게요', ghost: true, run: () => { done('off'); UI.openSheet('goods'); } },
       ]);
     } else if (p.kind === 'corporate') {
       choice('기업 후원 제안', `지역 기업이 1년간 매달 ${won(D.CORPORATE.monthly)}원을 후원하겠대요.\n회계 보고가 두 분기 연속 미흡하면 계약이 해지돼요.`, [

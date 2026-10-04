@@ -1155,12 +1155,14 @@
         acc += dt * speed;
         while (acc >= D.TIME.dayMs) {
           acc -= D.TIME.dayMs;
+          if (G.TEST_BOT) SIM.botAct(state);
           UI.handle(SIM.tick(state));
           UI.askPending();
           this.sync(false);
           if (state.day % D.TIME.daysPerMonth === 0) UI.save(state);
           if (UI.modalOpen) { acc = 0; break; }
           if (G.TEST_AUTO && state.reportDue) UI.handle(SIM.submitReport(state, false));   // 자동 시험: 분기 보고서도 바로 낸다
+          if (G.TEST && state.day % 30 === 0) (G.TESTLOG.objs = G.TESTLOG.objs || []).push([state.day, this.children.length]);   // 표시 객체 수(누수 판정)
         }
       }
       UI.hud();
@@ -1333,6 +1335,7 @@
     if (G.TEST_AUTO) {
       const q = new URLSearchParams(location.search);
       begin(SIM.newGame(q.has('seed') ? Number(q.get('seed')) : undefined, q.get('career') || 'ordinary', { tutorial: false, species: 'both' }));
+      if (G.TEST_SCENARIO === 'noautobuy') SIM.setAutoBuy(state, false);
       return;
     }
     UI.showStart((career, opts) => {
@@ -1355,6 +1358,7 @@
       if (kind === 'play') a.act = 'play';
     },
     onSeason(se) { if (scene() && scene().applySeason) scene().applySeason(se); },
+    onEmote(id, key) { const sc = scene(); if (sc && sc.animalSpr && sc.animalSpr[id]) sc.emote(sc.animalSpr[id], key, 2200); },
     onModal() { UI.setSpeed(speed); },
     onBuildMode: setBuild,
     onMoveMode: setMove,
@@ -1406,7 +1410,7 @@
     // 시험 모드 명령: GAME.test.speed(20), GAME.test.report(), GAME.test.run(365)
     test: {
       speed: (v) => { speed = v; UI.setSpeed(v); },
-      run(days) { for (let i = 0; i < days; i++) { UI.handle(SIM.tick(state)); UI.askPending(); if (G.TEST_AUTO && state.reportDue) UI.handle(SIM.submitReport(state, false)); } if (scene()) scene().sync(false); return this.report(); },
+      run(days) { for (let i = 0; i < days; i++) { if (G.TEST_BOT) SIM.botAct(state); UI.handle(SIM.tick(state)); UI.askPending(); if (G.TEST_AUTO && state.reportDue) UI.handle(SIM.submitReport(state, false)); } if (scene()) scene().sync(false); return this.report(); },
       report() {
         const st = state.stats, sc = scene();
         return { day: state.day, date: SIM.dateLabel(state.day), money: state.money, rep: Math.round(state.reputation), level: state.level, animals: state.animals.length,
@@ -1414,6 +1418,20 @@
           events: G.TESTLOG.events.length, choices: G.TESTLOG.choices.length, sprites: sc ? sc.children.length : 0 };
       },
       log: () => G.TESTLOG,
+      // 자동 판정(v0.14): 물품 경고·폐업·연간 창 수·표시 객체가 멈추는지
+      checks() {
+        const L = G.TESTLOG, years = Math.max(1 / 12, state.day / 360);
+        const decisions = L.choices.length / years, events = L.events.length / years;
+        const o = L.objs || [], tail = o.slice(-6).map((x) => x[1]);
+        const growth = tail.length >= 6 ? tail[5] - tail[0] : null;   // 최근 5개월 사이 늘어난 객체 수
+        return {
+          day: state.day, scenario: G.TEST_SCENARIO || 'normal',
+          stockoutWarned: (L.stockout || 0) > 0, closed: !!state.closed || (L.closures || 0) > 0,
+          decisionsPerYear: Math.round(decisions), eventsPerYear: Math.round(events), decisionsOk: decisions <= 60,
+          objects: tail.at(-1) ?? null, objectGrowth5mo: growth, objectsStable: growth == null ? null : growth < 150,
+          errors: L.errors.length,
+        };
+      },
     },
     state: () => state,
     phaser: () => game,

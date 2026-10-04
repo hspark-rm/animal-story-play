@@ -38,7 +38,7 @@
     director: {
       name: '은퇴한 동물유치원 원장님', diff: '쉬움', tag: '경험과 인맥이 두텁다',
       desc: '자금·평판이 넉넉하고 좋은 인재가 먼저 찾아옵니다. 산책장을 갖추고 시작합니다.',
-      money: 12_000_000, reputation: 150, awareness: 40, donors: 60, donorFee: 10_000, snsMult: 1, hireBonus: 2, namedRepCut: 0.5,
+      money: 12_000_000, reputation: 150, awareness: 40, donors: 60, donorFee: 10_000, snsMult: 1, hireBonus: 2, namedRepCut: 0.5, adoptMult: 1.1, donorMult: 1.1,
       extra: ['yard'],
       intro: [
         '동물유치원을 30년 동안 운영했다. 졸업한 강아지만 수천 마리.',
@@ -50,7 +50,7 @@
     influencer: {
       name: '인스타 10만 인플루언서', diff: '보통', tag: 'SNS는 강하고 지갑은 얇다',
       desc: 'SNS 효과가 2배이고 후원자가 많습니다. 다만 후원자 한 명의 후원금이 작습니다.',
-      money: 5_000_000, reputation: 80, awareness: 55, donors: 120, donorFee: 4_000, snsMult: 2, hireBonus: 1, namedRepCut: 0.8,
+      money: 5_000_000, reputation: 80, awareness: 55, donors: 120, donorFee: 4_000, snsMult: 2, hireBonus: 1, namedRepCut: 0.8, adoptMult: 1, donorMult: 1,
       extra: [],
       intro: [
         '반려견과의 일상을 올리던 계정이 어느새 팔로워 10만이 됐다.',
@@ -62,7 +62,7 @@
     ordinary: {
       name: '일반인', diff: '어려움', tag: '맨손에서 시작한다',
       desc: '자금과 후원자가 적고 아무도 나를 모릅니다. 대신 얼마 전 반려동물을 떠나보내 누구보다 의지가 강합니다. 자금이 바닥나도 한 달 더 버티고, 마음을 닫은 아이와 더 빨리 가까워집니다.',
-      money: 4_000_000, reputation: 20, awareness: 25, donors: 22, donorFee: 10_000, snsMult: 1, hireBonus: 0, namedRepCut: 1, resolve: true,
+      money: 4_000_000, reputation: 20, awareness: 25, donors: 22, donorFee: 10_000, snsMult: 1, hireBonus: 0, namedRepCut: 1, resolve: true, adoptMult: 0.85, donorMult: 0.85,
       extra: [],
       intro: [
         '19년을 함께한 뽀삐가 무지개다리를 건넜다.',
@@ -165,6 +165,9 @@
                 desc: '인식 +15(기간 동안 차츰) · 진행 중 시작되는 유행의 유기 물결 절반' },
     rescue:   { name: '대대적 구조 작전', need: { lv: 9, adopted: 250 }, cost: 8_000_000, days: 30, cool: 120,
                 desc: '30일간 보호 요청 2.5배 · 구조할 때마다 평판 +1. 자리를 넉넉히 마련하고 시작하세요' },
+    // 후반 자금을 쓸 곳(v0.14): 되풀이할 수 있는 큰 기부. 평판·인식이 오르고 엔딩의 '도시 유기 신고 감소'에 더해진다
+    fund:     { name: '지역 동물복지 기금 출연', need: { lv: 7, adopted: 200 }, cost: 20_000_000, days: 1, cool: 90,
+                desc: '평판 +30 · 인식 +3 · 이웃 보호소 중성화·의료 지원. 낼 때마다 10년 엔딩의 도시 유기 신고 감소가 커져요' },
     farm:     { name: '무허가 번식장 정리 지원', need: { lv: 10, aware: 80, adopted: 350 }, cost: 15_000_000, days: 60, cool: 360,
                 desc: '쉴 틈 없이 새끼를 낳아야 했던 곳이 문을 닫도록 돕고, 남겨진 아이들을 받아요. 이후 유기 물결이 영구히 줄어요(×0.6)' },
   };
@@ -474,8 +477,15 @@
   // 후반 균형(2026-10-04 점검 반영): 적립금이 너무 많으면 "후원금을 왜 안 쓰나" 비판으로 후원자가 조금씩 떠나고,
   // 등급이 오르면 운영비가 오른다. 인식이 높아 길에서 오는 아이가 줄면 이웃 도시 연계 구조 요청이 대신 온다
   DATA.RESERVE = { limit: 100_000_000, donorLoss: 0.02 };
-  DATA.UPKEEP_BY_LV = [1, 1, 1.1, 1.2, 1.35, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0];
+  // v0.14: 후반 자금이 넘쳐(6년차 1.7억) 높은 등급 운영비를 가파르게 올린다
+  DATA.UPKEEP_BY_LV = [1, 1, 1.1, 1.25, 1.45, 1.7, 2.0, 2.3, 2.6, 2.9, 3.2];
   DATA.REGION_INTAKE = { fromLv: 4, rate: 0.12 };
+  // 연계 의뢰(v0.14): 빈자리가 많은 보호소에 이웃 보호소·지자체가 아이를 부탁한다. 수용률이 target보다 낮을수록 자주 온다.
+  // (시험: 보통 운영 연말 수용률 11~23%로 보호소가 늘 비어 있었다)
+  DATA.REFERRAL = { fromLv: 2, target: 0.85, rate: 0.5, maxPerDay: 3 };
+  // 입양 기본 확률과 평판 배율(v0.14 시험으로 고름): 0.03·/400이면 준비되자마자 입양돼 보호소가 늘 비었다(수용률 11~23%)
+  DATA.ADOPT_BASE = 0.008;
+  DATA.REP_ADOPT_DIV = 1000;
   DATA.TOUCH_PER_DAY = 3;   // 아이 카드에서 하루에 할 수 있는 교감 횟수(모든 아이 합쳐서)
   // 이웃 보호소 평판은 끝없이 오르지 않고 규모에 맞는 상한으로 다가간다(10년 후반 순위 붕괴 방지)
   DATA.NPC_REP_CAP = { base: 500, perSize: 220 };
@@ -507,6 +517,8 @@
     shaggyDays: 40, intakeShaggy: 0.6, perPower: 8, cost: 40_000,
     adoptShaggy: 0.85, adoptFresh: 1.15, freshDays: 7, aware: 0.3,
   };
+  // 폐업(v0.14): 자금 마이너스가 months달 이어지면 문을 닫는다(포기하지 않는 마음 경력은 RESOLVE.delay달 더)
+  DATA.BANKRUPT = { months: 6, floor: 1_000_000 };   // 빚이 floor원을 넘는 달만 센다
   DATA.DIET = { rate: 0.12, trendRate: 0.4, days: 30, adoptMult: 0.5, socialMult: 0.7 };
 
   DATA.INJURY = { rate: 0.08, cost: [2_000_000, 5_000_000] };
