@@ -138,6 +138,7 @@
     if (!Object.values(s.facilities).some((f) => f.type === 'main')) placeMain(s);
     if (s.ending === undefined) s.ending = null;
     if (!s.seen) s.seen = {};
+    for (const k of Object.keys(s.jobPosts || {})) if (Array.isArray(s.jobPosts[k])) s.jobPosts[k] = { until: s.day, list: s.jobPosts[k] };   // 채용 개편 이전 저장
     if (s.closed === undefined) s.closed = null;
     s.stats.born = s.stats.born || 0; s.stats.placed = s.stats.placed || 0; s.stats.doorstep = s.stats.doorstep || 0;
     for (const a of s.animals) {
@@ -595,11 +596,17 @@
   }
 
   function makeCandidate(s, role) {
-    // 평판이 높을수록 주 능력치가 높은 사람이 지원한다
-    const r = D.ROLES[role];
+    // 채용 개편(v0.15): 능력치는 모두 무작위. 주 능력치는 평판이 높을수록 높은 쪽으로 기울지만 폭이 넓어 들쭉날쭉하다.
+    // 지원자마다 남다른 장기 하나(다른 능력치 +2~4)가 붙을 수 있다
+    const r = D.ROLES[role], H = D.HIRING;
     const stats = {};
-    for (const k of Object.keys(D.STATS)) stats[k] = randInt(s, 1, 4);
-    stats[r.main] = clamp(Math.round(2 + repEff(s) / 120 + rand(s) * 3 + D.CAREERS[s.career].hireBonus), 1, 9);
+    for (const k of Object.keys(D.STATS)) stats[k] = randInt(s, H.otherMin, H.otherMax);
+    stats[r.main] = clamp(Math.round(H.mainBase + repEff(s) / H.mainRepDiv + rand(s) * H.mainSpread + D.CAREERS[s.career].hireBonus), 1, 10);
+    if (rand(s) < H.talentChance) {
+      const others = Object.keys(D.STATS).filter((k) => k !== r.main);
+      const t = pick(s, others);
+      stats[t] = clamp(stats[t] + randInt(s, 2, 4), 0, 10);
+    }
     return { name: personName(s), role, stats, level: 1 };
   }
 
@@ -932,7 +939,8 @@
   /* ---------- 진료: 예방접종·중성화 ---------- */
   SIM.inHouse = (s) => has(s, 'clinic') && s.staff.some((x) => x.role === 'vet');
   SIM.medCost = (s, a, kind) => {
-    const c = D.MEDICAL[kind].cost[a.species];
+    let c = D.MEDICAL[kind].cost[a.species];
+    if (c != null && kind === 'neuter' && a.sex === 'F') c += D.MEDICAL.neuter.femaleExtra;   // 여아 중성화는 개복 수술이라 더 비싸다(v0.15)
     return c == null ? null : Math.round(c * (SIM.inHouse(s) ? D.MEDICAL.inHouse : 1) * (kind === 'neuter' && hasBuff(s, 'neuterWeek') ? 0.5 : 1));   // 봄 중성화 주간
   };
   SIM.needs = (a, kind) => {
@@ -1408,6 +1416,7 @@
     const phase = trendPhase(s);
     donations(s);
     volunteerApplicants(s, ev);
+    jobApplicants(s, ev);   // 채용 공고 지원자(v0.15)
 
     if (activeCampaign(s, 'school')) s.awareness = clamp(s.awareness + 0.12, 0, 100);
 
@@ -1899,21 +1908,38 @@
 
   SIM.postJob = (s, role) => {
     const r = D.ROLES[role];
+    if (s.jobPosts[role] && !s.jobPosts[role].list) return { ok: false, msg: '지원서를 받고 있어요' };
     if (s.money < r.post) return { ok: false, msg: '자금이 부족해요' };
     expense(s, 'hiring', r.post);
+    // 채용 개편(v0.15): 공고를 내면 D.HIRING.days일 뒤에 지원자 목록이 나온다(jobApplicants)
+    s.jobPosts[role] = { until: s.day + D.HIRING.days, list: null };
+    pushFeed(s, `${D.ROLES[role].name} 채용 공고를 냈다. ${D.HIRING.days}일 동안 지원서를 받는다`, 'calm');
+    return { ok: true, msg: `${D.HIRING.days}일 뒤에 지원자를 볼 수 있어요` };
+  };
+  function jobApplicants(s, ev) {
+    for (const role of Object.keys(s.jobPosts)) {
+      const post = s.jobPosts[role];
+      if (post.list || post.until > s.day) continue;
+      const res = makeApplicants(s, role);
+      post.list = res.list;
+      ev.push({ type: 'toast', text: `${D.ROLES[role].name} 공고에 ${res.list.length}명이 지원했어요` });
+      for (const e of res.events) ev.push(e);
+    }
+  }
+  function makeApplicants(s, role) {
     const list = [];
     for (const nm of D.NAMED) {
       if (nm.role !== role || s.hiredNamed.includes(nm.name) || s.reputation < nm.minRep * D.CAREERS[s.career].namedRepCut) continue;
       if (rand(s) < nm.chance) list.push({ name: nm.name, sprite: nm.sprite, title: nm.title, legend: !!nm.legend, role, stats: { ...nm.stats }, level: 1 });
     }
-    while (list.length < 3) list.push(makeCandidate(s, role));
-    s.jobPosts[role] = list.slice(0, 3);
+    const n = 3 + (rand(s) < 0.5 ? 1 : 0);   // 지원자 3~4명
+    while (list.length < n) list.push(makeCandidate(s, role));
     const legends = list.filter((c) => c.legend);
-    return { ok: true, events: legends.length ? [{ type: 'popup', title: '전설의 인재가 지원했어요', body: legends.map((c) => `${c.title} ${c.name}`).join('\n') }] : [] };
-  };
+    return { list: list.slice(0, n), events: legends.length ? [{ type: 'popup', title: '전설의 인재가 지원했어요', body: legends.map((c) => `${c.title} ${c.name}`).join('\n') }] : [] };
+  }
 
   SIM.hireCandidate = (s, role, i) => {
-    const c = s.jobPosts[role] && s.jobPosts[role][i];
+    const c = s.jobPosts[role] && s.jobPosts[role].list && s.jobPosts[role].list[i];
     if (!c) return { ok: false };
     s.staff.push({ id: s.nextId++, name: c.name, sprite: c.sprite, title: c.title, legend: c.legend, role, level: 1, exp: 0, stats: { ...c.stats } });
     if (c.title) s.hiredNamed.push(c.name);
@@ -2205,7 +2231,7 @@
     const hire = (role) => {
       if (!canAfford(role)) return;
       if (!s.jobPosts[role]) SIM.postJob(s, role);
-      const c = s.jobPosts[role]; if (!c) return;
+      const c = s.jobPosts[role] && s.jobPosts[role].list; if (!c) return;   // 채용 개편: 지원자는 며칠 뒤에 나온다
       const best = c.map((x, i) => [x.stats[D.ROLES[role].main], i]).sort((a, b) => b[0] - a[0])[0][1];
       SIM.hireCandidate(s, role, best);
     };

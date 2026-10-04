@@ -301,7 +301,13 @@
 
   // 이름 있는 인물: 해당 직무 공고를 내면 minRep 이상일 때 지원자 목록에 나온다(한 번 채용하면 다시 나오지 않음).
   // legend는 평판 600 이상에서 지원자 중 5%로 등장한다. 강햇님·민정식은 제작자의 지인, 전설 4명은 가상 인물이다
+  // 채용 개편(v0.15): 공고 days일 뒤 지원자가 나온다. 능력치는 모두 무작위(주 능력치 = mainBase + 평판/mainRepDiv + 0~mainSpread + 경력 보너스)
+  DATA.HIRING = { days: 3, otherMin: 0, otherMax: 5, mainBase: 1, mainRepDiv: 150, mainSpread: 5, talentChance: 0.35 };
+
   DATA.NAMED = [
+    // 사용자 요청(2026-10-04): 훈련만 잘하는 새내기 훈련사. 평판 조건이 없어 초반에도 자주 지원한다
+    { name: '박송이', sprite: 'parksongi', title: '훈련만큼은 자신 있는 새내기', role: 'trainer', minRep: 0, chance: 0.6,
+      stats: { care: 2, heal: 0, train: 9, groom: 1, acct: 0, sns: 1 } },
     { name: '강햇님', sprite: 'kanghaetnim', title: '손끝이 다정한 미용사', role: 'groomer', minRep: 0, chance: 1,
       stats: { care: 5, heal: 1, train: 2, groom: 8, acct: 1, sns: 4 } },
     { name: '민정식', sprite: 'minjeongsik', title: '아이들이 먼저 알아보는 사람', role: 'carer', minRep: 100, chance: 1,
@@ -444,7 +450,7 @@
     // 바깥 동물병원 비용(지자체 중성화 지원을 받은 값). 진료실+수의사가 있으면 inHouse 비율만 든다
     vaccine: { name: '필수 예방접종', cost: { dog: 30_000, cat: 25_000, exotic: 80_000 }, minDays: 60,
       detail: { dog: '종합백신·광견병', cat: '종합백신', exotic: '전문 수의사 상담' } },
-    neuter:  { name: '중성화 수술',   cost: { dog: 150_000, cat: 100_000 }, minDays: 180, coneDays: 10 },   // 수술 뒤 넥카라 10일
+    neuter:  { name: '중성화 수술',   cost: { dog: 150_000, cat: 100_000 }, femaleExtra: 100_000, minDays: 180, coneDays: 10 },   // 남아 기준 가격, 여아는 femaleExtra만큼 더(사용자 요청 2026-10-04). 수술 뒤 넥카라 10일
     inHouse: 0.4,              // 진료실+수의사가 있으면 비용의 40%만 든다
     babyAdoptDays: 60,         // 생후 60일이 지나야 입양 갈 수 있다
     intake: { vaccinated: 0.3, neutered: 0.25 },   // 성체로 들어올 때 이미 되어 있을 확률

@@ -539,7 +539,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     for (const kind of ['vaccine', 'neuter']) {
       if (!SIM.needs(a, kind)) continue;
       const c = SIM.medCost(state, a, kind);
-      out.push(btn('treat', `${a.id}:${kind}`, `${kind === 'vaccine' ? '접종' : '중성화(선택)'} ${won(c)}`, { disabled: state.money < c }));
+      out.push(btn('treat', `${a.id}:${kind}`, `${kind === 'vaccine' ? '접종' : `중성화(선택${a.sex === 'F' ? '·여아' : ''})`} ${won(c)}`, { disabled: state.money < c }));
     }
     return out.join('');
   }
@@ -662,13 +662,14 @@ ${flags.join(' · ') || '건강한 편이에요'}
         body += `<p class="note">월 인건비 합계 ${won(state.staff.reduce((a, x) => a + SIM.salary(x), 0))}원 · 정기후원 월 ${won(state.donors * state.donorFee)}원</p>`;
       } else if (t === 'hire') {
         body = Object.entries(D.ROLES).filter(([, r]) => !r.hidden).map(([k, r]) => {
-          const cands = state.jobPosts[k];
+          const post = state.jobPosts[k], cands = post && post.list;
           const list = cands ? cands.map((c, i) => `<div class="row ${c.legend || c.title ? 'legend' : ''}">${icon('staff', k)}
               <div class="main"><span class="name">${esc(c.name)}</span><span class="sub">${c.title ? esc(c.title) + ' · ' : ''}월급 ${won(SIM.salary({ role: k, stats: c.stats }))}원</span>${statsLine(c.stats)}</div>
               ${btn('hire', `${k}:${i}`, '채용')}</div>`).join('') : '';
           return `<div class="card"><b>${r.name}</b><span class="note">${r.desc} 주 능력치: ${D.STATS[r.main]}</span>
-            <div class="btns">${btn('postJob', k, cands ? `다시 공고 ${won(r.post)}` : `공고 내기 ${won(r.post)}`, { disabled: state.money < r.post })}</div></div>${list}`;
-        }).join('') + '<p class="note">지원자의 능력은 보호소 평판에 따라 달라져요.</p>';
+            <div class="btns">${post && !cands ? `<span class="note">지원서 받는 중 · ${Math.max(0, post.until - state.day)}일 뒤 발표</span>`
+              : btn('postJob', k, cands ? `다시 공고 ${won(r.post)}` : `공고 내기 ${won(r.post)}`, { disabled: state.money < r.post })}</div></div>${list}`;
+        }).join('') + `<p class="note">공고를 내면 ${D.HIRING.days}일 동안 지원서를 받아요. 능력치는 사람마다 들쭉날쭉하고, 평판이 높을수록 주 능력이 좋은 사람이 지원해요.</p>`;
       } else {
         const vols = state.staff.filter((x) => x.role === 'volunteer').length;
         body = `<div class="card"><b>봉사자 모집</b><span class="note">봉사자는 무급이에요. 공고를 내면 2주 동안 지원자가 한 명씩 연락해 와요. 현재 ${vols}/${D.VOLUNTEER.max}명</span>
@@ -932,7 +933,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     branch: (a) => { const [no, t] = a.split(':'); const r = SIM.openBranch(state, Number(no), t); if (r.ok) hooks.onChange(); return r; },
     train: (a) => SIM.trainStaff(state, Number(a)),
     removeItem: (a) => { const r = SIM.removeYardItem(state, a); if (r.ok) { UI.closeSheet(); hooks.onChange(); } return r; },
-    postJob: (a) => SIM.postJob(state, a),
+    postJob: (a) => { const r = SIM.postJob(state, a); if (r.ok && r.msg) UI.toast(r.msg); return r; },
     hire: (a) => { const [role, i] = a.split(':'); const r = SIM.hireCandidate(state, role, Number(i)); if (r.ok) UI.toast(`${r.name}님이 합류했어요`); return r; },
     fire: (a) => SIM.fire(state, Number(a)),
     postVol: () => SIM.postVolunteers(state),
