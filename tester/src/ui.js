@@ -71,7 +71,7 @@
     [/회계 보고/, 'account'], [/기한/, 'deadline'], [/자금|아이들을 보내야|직원이 떠/, 'funds'], [/대출/, 'loan'], [/물품|마트/, 'goods'],
     [/신문/, 'news'], [/마음을 열/, 'open'], [/다이어트/, 'diet'], [/다친|수술/, 'surgery'], [/다시 돌아온/, 'return'],
     [/두고 간/, 'doorstep'], [/새 생명|출산/, 'birth'], [/알러지/, 'allergy'], [/등급/, 'level'], [/접종|중성화/, 'medical'],
-    [/보고서/, 'quarter'], [/결산|성과 보고|년이 지났/, 'year'], [/입양/, 'adopt'],
+    [/데려가|방문/, 'adopt'], [/보고서/, 'quarter'], [/결산|성과 보고|년이 지났/, 'year'], [/입양/, 'adopt'],
   ];
   function eventArt(title) {
     const hit = EVENT_ART.find(([re]) => re.test(title));
@@ -120,6 +120,7 @@
       else if (e.type === 'popup') UI.event(e.title, e.body);
       else if (e.type === 'quarter') showReport(e.report, e.prev, true);
       else if (e.type === 'ending') showEnding(e.report);
+      else if (e.type === 'visit') { if (hooks.onVisit) hooks.onVisit(e.animal); }
       else if (e.type === 'year') {
         const s = e.summary;
         UI.event(`${s.year}년차 결산`, `구조 ${s.rescued} · 입양 ${s.adopted} · 이송 ${s.transferred} · 다시 돌아온 아이 ${s.returned}\n정기후원자 ${s.donors}명 · 자금 ${won(s.money)}원\n이웃 보호소 ${s.total}곳 중 ${s.rank}위`);
@@ -164,9 +165,9 @@
       const a = p.animal, b = D.BREEDS[a.breed];
       const flags = [a.injured ? `크게 다쳤어요 (수술비 ${won(a.surgeryCost)}원)` : '', a.pregnant ? '임신했어요' : '', a.closed ? '마음을 닫았어요' : '', a.fat ? '다이어트가 필요해요' : ''].filter(Boolean);
       const c = SIM.capacity(state);
-      const room = a.species === 'dog' ? `개 ${c.nd}/${c.dog}` : `고양이 ${c.nc}/${c.cat}`;
+      const room = a.species === 'dog' ? (SIM.dogSize(a) === 'small' ? `소형견사 ${c.ns}/${c.small}` : `대형견사 ${c.nl}/${c.large}`) : `고양이 ${c.nc}/${c.cat}`;
       choice('보호 요청이 왔어요', `${icon(a.fat ? 'animal-fat' : 'animal', a.breed)}
-${b.name}${SIM.coatName(a) ? `(${SIM.coatName(a)})` : ''} ${sexMark(a)} · ${SIM.ageText(a)} · 건강 ${a.health}
+${b.name}${SIM.coatName(a) ? `(${SIM.coatName(a)})` : ''} ${sexMark(a)} · ${a.species === 'dog' ? `${D.DOG_SIZE[SIM.dogSize(a)]} · ` : ''}${SIM.ageText(a)} · 건강 ${a.health}
 중성화 ${a.neutered ? '했어요' : '안 했어요'} · 예방접종 ${a.vaccinated ? '했어요' : '안 했어요'}
 ${flags.join(' · ') || '건강한 편이에요'}
 <span class="note">${b.health}</span><span class="note">지금 자리: ${room}</span>`, [
@@ -184,6 +185,22 @@ ${flags.join(' · ') || '건강한 편이에요'}
         { label: '긴급 모금 후 수술하기', note: `예상 모금 약 ${won(est)}원 · 모자라면 자금에서 채워요${state.fundraisedQ ? ' · 이번 분기 두 번째라 효과 절반' : ''}`, run: () => done('fund') },
         { label: '큰 병원이 있는 보호소로 보내기', note: '평판 -5', ghost: true, run: () => done('transfer') },
       ]);
+    } else if (p.kind === 'visit') {
+      const a = state.animals.find((x) => x.id === p.animal);
+      if (!a) { done('skip'); return; }
+      const b = D.BREEDS[a.breed];
+      const head = `${icon(a.fat ? 'animal-fat' : 'animal', a.breed)}\n${j(esc(p.family), '이가')} ${j(esc(a.name), '과와')} 시간을 보냈어요.\n${esc(p.act)}.\n<span class="note">${b.name} · ${SIM.ageText(a)}</span>`;
+      if (SIM.isReady(a)) {
+        choice('이 아이를 데려가고 싶대요', `${head}\n가족이 바로 입양하고 싶어 해요.`, [
+          { label: '입양 상담하기', note: '교감한 가족이라 파양 위험이 낮아요', disabled: state.inv.carriers < 1, run: () => done('adopt') },
+          { label: '다음에 다시 오시라고 하기', ghost: true, run: () => done('later') },
+        ]);
+      } else {
+        choice('준비되면 데려가고 싶대요', `${head}\n아직 입양 준비가 덜 됐어요: ${SIM.readyIssues(a).join(' · ')}\n준비가 끝나면 바로 데리러 오겠대요.`, [
+          { label: '약속하기', note: `준비가 끝나는 날 이 가족에게 입양 (최대 ${D.VISIT.reserveDays}일 기다려요)`, run: () => done('reserve') },
+          { label: '다음에 다시 오시라고 하기', ghost: true, run: () => done('later') },
+        ]);
+      }
     } else if (p.kind === 'memorial') {
       const d = D.DAYS.find((x) => x.id === p.id), P = D.DAY_EVENT.party, Q = D.DAY_EVENT.post;
       const who = d.species === 'cat' ? '고양이' : d.species === 'dog' ? '강아지' : '모든 아이';
@@ -321,12 +338,12 @@ ${flags.join(' · ') || '건강한 편이에요'}
   const built = (type) => Object.values(state.facilities).some((f) => f.type === type && !f.buildLeft);
   const TUTORIAL = [
     { text: () => `${state.shelterName}에 오신 걸 환영해요!\n위쪽에는 자금·평판·인식·후원자가, 그 아래 띠에는 동네 SNS 소식이 흘러요.\n지도는 두 손가락으로 확대하고 끌어서 옮길 수 있어요.`, target: '#hud', next: true },
-    { text: () => '아이들이 지낼 집부터 지어요.\n아래 [건설]을 누르고 견사의 [짓기]를 고른 뒤, 지도의 빈칸을 눌러요. 견사는 2×2칸이에요.',
-      target: () => (UI.sheet === 'build' ? '[data-act="build"][data-arg="kennel"]' : $('build-hint').hidden ? '[data-sheet="build"]' : '#build-hint'), done: () => has('kennel') },
+    { text: () => '아이들이 지낼 집부터 지어요. 첫 식구는 진도믹스라 대형견사가 필요해요.\n아래 [건설]을 누르고 대형견사의 [짓기]를 고른 뒤, 지도의 빈칸을 눌러요.\n소형견은 소형견사, 중·대형견은 대형견사에서 지내요.',
+      target: () => (UI.sheet === 'build' ? '[data-act="build"][data-arg="bigkennel"]' : $('build-hint').hidden ? '[data-sheet="build"]' : '#build-hint'), done: () => has('bigkennel') },
     { text: () => '이번엔 고양이 집, 묘사를 지어요. [건설] → 묘사 [짓기] → 빈칸.',
       target: () => (UI.sheet === 'build' ? '[data-act="build"][data-arg="cattery"]' : $('build-hint').hidden ? '[data-sheet="build"]' : '#build-hint'), done: () => has('cattery') },
     { text: () => '공사에는 며칠이 걸려요.\n오른쪽 위 빨리 감기 버튼으로 시간을 빠르게 해 보세요.', target: '[data-speed="4"]',
-      done: () => built('kennel') && built('cattery'), after: () => UI.handle(SIM.tutorialArrive(state)) },
+      done: () => built('bigkennel') && built('cattery'), after: () => UI.handle(SIM.tutorialArrive(state)) },
     { text: () => '첫 식구가 왔어요!\n[동물]을 눌러 아이들의 건강·신뢰·사회성과 입양까지 남은 일을 확인해 보세요.', target: '[data-sheet="animals"]', done: () => UI.sheet === 'animals' },
     { text: () => '[물품]에서는 사료·모래 재고와 남은 일수를 봐요.\n떨어지면 아이들이 아파요. 자동 구입도 켤 수 있어요.', target: '[data-sheet="goods"]', done: () => UI.sheet === 'goods' },
     { text: () => `[사람]에는 바로 나, ${state.player.name}이(가) 있어요.\n봉사자 모집과 직원 채용도 여기서 해요.`, target: '[data-sheet="people"]', done: () => UI.sheet === 'people' },
@@ -418,15 +435,16 @@ ${flags.join(' · ') || '건강한 편이에요'}
     if (a.nursingLeft) badges.push(`<span class="badge">수유 중 ${a.nursingLeft}일</span>`);
     if (a.bornHere && a.ageDays < 120) badges.push('<span class="badge">보호소에서 태어났어요</span>');
     if (a.allergy && a.allergy.known) badges.push('<span class="badge closed">처방식 필요</span>');
-    if (SIM.makeshift(state, a)) badges.push('<span class="badge closed">임시 거처</span>');
+    if (SIM.makeshift(state, a)) badges.push(`<span class="badge closed">${a.species === 'dog' ? '좁은 집 · 대형견사가 필요해요' : '임시 거처'}</span>`);
     if (SIM.isReady(a)) badges.push('<span class="badge ready">입양 준비 완료</span>');
     if (a.fat) badges.push(`<span class="badge">다이어트 ${a.dietDays}/${D.DIET.days}일</span>`);
     if (a.closed && !a.opened) badges.push('<span class="badge closed">마음을 닫은 아이</span>');
     if (a.returned) badges.push('<span class="badge">다시 돌아온 아이</span>');
+    if (a.reservedBy) badges.push(`<span class="badge ready">${j(esc(a.reservedBy), '이가')} 기다려요</span>`);
     { const m = SIM.ageAdopt(a); if (m >= 1.7) badges.push('<span class="badge ready">어려서 입양 문의 많음</span>'); else if (m <= 0.45) badges.push('<span class="badge closed">나이가 많아 입양이 어려워요</span>'); }
     if (state.trend && state.trend.breed === a.breed) badges.push('<span class="badge trend">유행 품종</span>');
     return `<div class="row">${icon(a.fat ? 'animal-fat' : 'animal', a.breed)}
-      <div class="main"><span class="name">${esc(a.name)} ${sexMark(a)}</span><span class="sub">${b.name}${SIM.coatName(a) ? `(${SIM.coatName(a)})` : ''} · ${SIM.ageText(a)} · 평균 수명 ${b.life[0]}–${b.life[1]}년 · 보호 ${a.days}일째</span>
+      <div class="main"><span class="name">${esc(a.name)} ${sexMark(a)}</span><span class="sub">${b.name}${SIM.coatName(a) ? `(${SIM.coatName(a)})` : ''} · ${a.species === 'dog' ? `${D.DOG_SIZE[SIM.dogSize(a)]} · ` : ''}${SIM.ageText(a)} · 평균 수명 ${b.life[0]}–${b.life[1]}년 · 보호 ${a.days}일째</span>
       <span class="sub">${a.species === 'exotic' ? '' : `중성화 ${a.neutered ? 'O' : 'X'} · `}예방접종 ${a.vaccinated ? 'O' : 'X'}${a.allergy && a.allergy.known ? ` · ${a.allergy.cause} 알러지` : ''}</span>
       <span class="sub">건강 메모: ${b.health}</span>
       ${issues.length ? `<span class="sub">입양까지: ${issues.join(' · ')}</span>` : ''}
@@ -457,7 +475,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
       const c = SIM.capacity(state);
       const order = (a) => (a.injured ? 0 : SIM.isReady(a) ? 1 : 2);
       const list = [...state.animals].sort((a, b) => order(a) - order(b));
-      return `<p class="note">개 ${c.nd}/${c.dog} · 고양이 ${c.nc}/${c.cat} · 건강 ${D.ADOPT_READY.health}, 신뢰·사회성 ${D.ADOPT_READY.trust} 이상이면 입양을 기다려요. 다이어트 중인 아이는 입양 확률이 절반이에요.</p>
+      return `<p class="note">소형견 ${c.ns}/${c.small} · 중·대형견 ${c.nl}/${c.large} · 고양이 ${c.nc}/${c.cat} · 건강 ${D.ADOPT_READY.health}, 신뢰·사회성 ${D.ADOPT_READY.trust} 이상이면 입양을 기다려요. 다이어트 중인 아이는 입양 확률이 절반이에요.</p>
         ${list.map(animalRow).join('') || '<p class="note">지금은 보호 중인 아이가 없어요.</p>'}`;
     },
     people() {
@@ -571,7 +589,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
           : `<p class="note">${state.reportDue ? '제출을 기다리는 보고서가 있어요. 하단의 반짝이는 버튼을 누르세요.' : '첫 분기 보고서는 3월 말에 나와요.'}</p>`;
       } else {
         const me = state.reputation + state.stats.adopted * 2;
-        const list = [...state.npcRep.map((r, i) => ({ ...D.NPCS[i], rep: r })), { name: state.shelterName || '우리 보호소', region: '경기', type: '구조·보호', rep: me, me: true }]
+        const list = [...state.npcRep.map((r, i) => ({ ...D.NPCS[i], rep: r })), { name: state.shelterName || '우리 보호소', region: D.HOME_CITY, type: '구조·보호', rep: me, me: true }]
           .sort((a, b) => b.rep - a.rep);
         const rows = list.map((n, i) => `<tr class="${n.me ? 'me' : ''}"><td>${i + 1}</td><td>${esc(n.name)}<br><span class="note">${n.region} · ${n.type}</span></td><td>${Math.round(n.rep)}</td></tr>`).join('');
         const st = state.stats;

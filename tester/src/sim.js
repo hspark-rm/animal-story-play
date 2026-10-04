@@ -83,7 +83,8 @@
     // 시작은 봉사자가 아니라 '나'
     s.staff.push({ id: s.nextId++, name: s.player.name, role: 'owner', gender: s.player.gender, level: 1, exp: 0, stats: { ...D.OWNER.stats[s.career] } });
     if (!s.tutorial) {
-      placeFacility(s, 'kennel', 3, 4);
+      placeFacility(s, 'bigkennel', 3, 4);
+      placeFacility(s, 'kennel', 3, 5);
       placeFacility(s, 'cattery', 5, 5);
       if (C.extra.includes('yard')) placeFacility(s, 'yard', 2, 5);
       intakeAnimal(s, 'jindo', true);
@@ -182,22 +183,27 @@
   // 산책장: 상하좌우로 붙은 것을 최대 8칸까지 한 마당으로 묶는다
   SIM.groups = (s) => {
     const at = (x, y, type) => { const f = SIM.facilityAt(s, x, y); return f && f.type === type && !f.buildLeft ? f : null; };
-    const kennels = facList(s, 'kennel').sort((a, b) => a.y - b.y || a.x - b.x);
-    const used = new Set(), kennel = [];
-    for (const axis of ['x', 'y']) {
-      for (const k of kennels) {
-        if (used.has(k.id)) continue;
-        const run = [k];
-        while (run.length < D.MERGE.kennel) {
-          const last = run[run.length - 1];
-          const nx = at(last.x + (axis === 'x' ? 1 : 0), last.y + (axis === 'y' ? 1 : 0), 'kennel');
-          if (!nx || used.has(nx.id)) break;
-          run.push(nx);
+    // 견사·대형견사·묘사: 같은 종류가 일렬로 붙으면 한 동(최대 D.MERGE[type]칸)
+    const out = {};
+    for (const type of D.MERGE_LINE) {
+      const list = facList(s, type).sort((a, b) => a.y - b.y || a.x - b.x);
+      const used = new Set(), groups = [];
+      for (const axis of ['x', 'y']) {
+        for (const k of list) {
+          if (used.has(k.id)) continue;
+          const run = [k];
+          while (run.length < D.MERGE[type]) {
+            const last = run[run.length - 1];
+            const nx = at(last.x + (axis === 'x' ? 1 : 0), last.y + (axis === 'y' ? 1 : 0), type);
+            if (!nx || used.has(nx.id)) break;
+            run.push(nx);
+          }
+          if (run.length > 1) { run.forEach((f) => used.add(f.id)); groups.push({ type, axis, ids: run.map((f) => f.id), x: k.x, y: k.y, len: run.length }); }
         }
-        if (run.length > 1) { run.forEach((f) => used.add(f.id)); kennel.push({ axis, ids: run.map((f) => f.id), x: k.x, y: k.y, len: run.length }); }
       }
+      for (const k of list) if (!used.has(k.id)) groups.push({ type, axis: 'x', ids: [k.id], x: k.x, y: k.y, len: 1 });
+      out[type] = groups;
     }
-    for (const k of kennels) if (!used.has(k.id)) kennel.push({ axis: 'x', ids: [k.id], x: k.x, y: k.y, len: 1 });
     const seen = new Set(), yard = [];
     for (const y0 of facList(s, 'yard').sort((a, b) => a.y - b.y || a.x - b.x)) {
       if (seen.has(y0.id)) continue;
@@ -213,13 +219,19 @@
       }
       yard.push({ ids: cells.map((f) => f.id), cells: cells.map((f) => [f.x, f.y]), len: cells.length });
     }
-    return { kennel, yard };
+    out.yard = yard;
+    return out;
   };
   // 견사 한 칸의 정원: 묶음의 첫 칸이 붙인 칸 수만큼 더 받는다
-  SIM.kennelCap = (s, f, groups) => {
-    const g = (groups || SIM.groups(s)).kennel.find((k) => k.ids.includes(f.id));
-    return D.FACILITIES.kennel.cap + (g && g.ids[0] === f.id ? g.len - 1 : 0);
+  // 이어 지은 동은 첫 칸이 붙인 칸 수만큼 더 받는다
+  SIM.lineCap = (s, f, groups) => {
+    const list = (groups || SIM.groups(s))[f.type];
+    const g = list && list.find((k) => k.ids.includes(f.id));
+    return D.FACILITIES[f.type].cap + (g && g.ids[0] === f.id ? g.len - 1 : 0);
   };
+  SIM.kennelCap = SIM.lineCap;
+  // 개의 몸집: 소형견은 소형견사, 중·대형견은 대형견사에서 지낸다
+  SIM.dogSize = (a) => (D.BREEDS[a.breed || a] && D.BREEDS[a.breed || a].size) || 'large';
 
   /* ---------- 땅 넓히기 ---------- */
   SIM.expandLand = (s) => {
@@ -246,29 +258,39 @@
   }
   const personName = (s) => pick(s, D.SURNAMES) + pick(s, D.GIVEN);
 
-  function freeHome(s, species) {
-    const types = species === 'dog' ? ['kennel'] : species === 'cat' ? ['cattery'] : ['exotic', 'kennel'];
+  function freeHome(s, species, breed) {
+    const types = species === 'dog' ? [SIM.dogSize(breed) === 'small' ? 'kennel' : 'bigkennel'] : species === 'cat' ? ['cattery'] : ['exotic', 'bigkennel', 'kennel'];
     const groups = SIM.groups(s);
     for (const type of types) {
       for (const f of facList(s, type)) {
         const n = s.animals.filter((a) => a.home === f.id).length;
-        const cap = type === 'kennel' ? SIM.kennelCap(s, f, groups) : D.FACILITIES[type].cap;
+        const cap = D.MERGE_LINE.includes(type) ? SIM.lineCap(s, f, groups) : D.FACILITIES[type].cap;
         if (n < cap) return f.id;
       }
     }
     return null;
   }
   // 특수동물이 전용 사육장이 아닌 곳에 있으면 '임시 거처'
-  SIM.makeshift = (s, a) => a.species === 'exotic' && s.facilities[a.home] && s.facilities[a.home].type !== 'exotic';
+  // 중·대형견이 소형견사에 있어도 '임시 거처'(예전 저장에서 옮겨 온 아이들)
+  SIM.makeshift = (s, a) => {
+    const h = s.facilities[a.home];
+    if (!h) return false;
+    if (a.species === 'exotic') return h.type !== 'exotic';
+    return a.species === 'dog' && h.type === 'kennel' && SIM.dogSize(a) === 'large';
+  };
   SIM.capacity = (s) => {
     const groups = SIM.groups(s);
-    const dog = facList(s, 'kennel').reduce((a, f) => a + SIM.kennelCap(s, f, groups), 0);
-    const cat = facList(s, 'cattery').length * D.FACILITIES.cattery.cap;
+    const small = facList(s, 'kennel').reduce((a, f) => a + SIM.lineCap(s, f, groups), 0);
+    const large = facList(s, 'bigkennel').reduce((a, f) => a + SIM.lineCap(s, f, groups), 0);
+    const dog = small + large;
+    const cat = facList(s, 'cattery').reduce((a, f) => a + SIM.lineCap(s, f, groups), 0);
+    const dogs = s.animals.filter((a) => a.species === 'dog');
+    const ns = dogs.filter((a) => SIM.dogSize(a) === 'small').length, nl = dogs.length - ns;
     const nd = s.animals.filter((a) => a.species === 'dog').length;
     const nc = s.animals.filter((a) => a.species === 'cat').length;
     const exo = facList(s, 'exotic').length * D.FACILITIES.exotic.cap;
     const ne = s.animals.filter((a) => a.species === 'exotic').length;
-    return { dog, cat, nd, nc, exo, ne };
+    return { dog, cat, nd, nc, exo, ne, small, large, ns, nl };
   };
 
   /* ---------- 사람 능력 ---------- */
@@ -313,7 +335,7 @@
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const g = SIM.facilityAt(s, fx + dx, fy + dy);
           if (!g || g.id === f.id || g.buildLeft) continue;
-          for (const c of D.COMBOS) if (f.type === c.a && g.type === c.b) out[c.id].add(g.id);
+          for (const c of D.COMBOS) if (f.type === c.a && (g.type === c.b || (c.b === 'kennel' && g.type === 'bigkennel'))) out[c.id].add(g.id);
         }
       }
     }
@@ -407,7 +429,7 @@
   // 자리를 찾아 실제로 들인다
   function admit(s, a, events) {
     const b = D.BREEDS[a.breed];
-    const home = freeHome(s, b.species);
+    const home = freeHome(s, b.species, a.breed);
     if (!home) { sendAway(s, a, events, 'full'); return null; }
     a.home = home;
     s.animals.push(a);
@@ -601,6 +623,65 @@
   }
 
   /* ---------- 하루 진행 ---------- */
+  // 입양 한 건 처리(이동장·책임비·앨범·파양 예약). 성공하면 true
+  function adoptOne(s, a, ev, opts = {}) {
+    const fee = D.ADOPT_FEES[s.feeLevel];
+    if (s.inv.carriers < 1) {
+      if (!s.shortNotice.carrierAdopt || s.day - s.shortNotice.carrierAdopt >= 10) {
+        s.shortNotice.carrierAdopt = s.day;
+        ev.push({ type: 'toast', text: `${a.name}의 새 가족이 왔는데 이동장이 없어요` });
+      }
+      return false;
+    }
+    s.inv.carriers--;
+    s.animals = s.animals.filter((x) => x !== a);
+    if (a.species === 'exotic') {
+      s.stats.placed++;
+      s.reputation += 6;
+      ev.push({ type: 'adopt', animal: a.id, text: `${D.BREEDS[a.breed].name} ${j(a.name, '이가')} 전문 보호시설로 떠났어요` });
+      pushFeed(s, `${D.BREEDS[a.breed].name} ${j(a.name, '이가')} 넓은 전문 보호시설에서 새 삶을 시작했다`, 'good');
+      return true;
+    }
+    s.stats.adopted++; s.ledger.adopted++; s.ledger.stayDays += a.days;
+    if (fee.fee) income(s, 'fee', fee.fee);
+    const gift = randInt(s, 10, 30) * 10_000;
+    income(s, 'gift', gift);
+    s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep : 0);
+    const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1) * (opts.bonded ? D.VISIT.bondReturn : 1);
+    s.album.unshift({ id: a.id, name: a.name, breed: a.breed, coat: a.coat, day: s.day, ageDays: a.ageDays, news: [], next: 0,
+      returnDay: willReturn ? s.day + randInt(s, 30, 90) : null, closed: a.closed });
+    if (s.album.length > 80) s.album.length = 80;
+    ev.push({ type: 'adopt', animal: a.id, text: `${a.name} 입양! (책임비 ${won(fee.fee)} · 후원 ${won(gift)})` });
+    if (opts.family) pushFeed(s, `${j(opts.family, '이가')} 교감 끝에 ${a.name}의 가족이 되었다`, 'good');
+    else pushFeed(s, a.closed ? `한때 마음을 닫았던 ${j(a.name, '이가')} 새 가족을 만났다` : SIM.ageGroup(a).key === 'senior' ? `${SIM.ageLabel(a.ageDays)} ${j(a.name, '이가')} 새 가족을 만났다. 노령 입양 이야기가 공유되고 있다` : `${a.name}의 새 가족이 입양 후기를 올렸다`, 'good');
+    return true;
+  }
+
+  // 방문자: 하루 한 번 확률로 가족이 찾아와 아이 하나와 교감한다
+  function visitorTick(s, ev) {
+    const V = D.VISIT;
+    if (s.day < V.fromDay || s.day < (s.visitNext || 0) || s.pending.some((p) => p.kind === 'visit')) return;
+    const rate = V.base * (1 + s.awareness / 100 + s.reputation / 600) * (has(s, 'adoption') ? V.adoptionRoom : 1);
+    if (rand(s) >= rate) return;
+    const pool = s.animals.filter((a) => a.species !== 'exotic' && !a.reservedBy && !a.closed && a.trust >= V.minTrust && !a.injured && !a.pregnant && !a.nursingLeft);
+    if (!pool.length) return;
+    const fam = pick(s, V.families);
+    // 가족마다 끌리는 나이대가 있다(노부부는 노령 동물, 아이 있는 집은 어린 동물)
+    const a = weighted(s, pool, (x) => SIM.ageAdopt(x) * D.BREEDS[x.breed].adopt * (fam.likes === SIM.ageGroup(x).key ? V.likeBoost : 1) * (SIM.isReady(x) ? 2 : 1));
+    const acts = V.acts[a.species] || V.acts.dog;
+    const act = acts[randInt(s, 0, acts.length - 1)].replaceAll('{n}', j(a.name, '이가'));
+    s.visitNext = s.day + V.cooldown;
+    a.trust = Math.min(100, a.trust + V.trustGain);
+    a.social = Math.min(100, a.social + V.socialGain);
+    ev.push({ type: 'visit', animal: a.id });
+    if (rand(s) < V.wantRate * SIM.ageAdopt(a) * (fam.likes === SIM.ageGroup(a).key ? V.likeBoost : 1)) {
+      s.pending.push({ kind: 'visit', animal: a.id, family: fam.name, act, ready: SIM.isReady(a), issues: SIM.readyIssues(a) });
+    } else {
+      ev.push({ type: 'toast', text: `${fam.name} 방문: ${act}` });
+      pushFeed(s, `${j(fam.name, '이가')} 보호소에 들러 ${j(a.name, '과와')} 시간을 보냈다`, 'calm');
+    }
+  }
+
   SIM.tick = (s) => {
     const ev = [];
     s.day++;
@@ -638,7 +719,7 @@
       if (a.pregnant && --a.dueIn <= 0) births.push(a);
       const b = D.BREEDS[a.breed];
       const fac = s.facilities[a.home];
-      const ms = SIM.makeshift(s, a) ? D.EXOTIC.makeshift : 1;
+      const ms = SIM.makeshift(s, a) ? D.EXOTIC.makeshift : 1;   // 전용이 아닌 집(특수동물, 소형견사의 대형견)
       const healBonus = (cs.care.has(fac.id) || cs.catvet.has(fac.id)) ? 1.3 : 1;
       let starving = (a.species === 'dog' && short.dogFood) || (a.species === 'cat' && short.catFood);
       if (a.allergy && a.allergy.known) starving = !!short.hypoFood;
@@ -649,14 +730,18 @@
       if (a.closed && !a.opened) tg *= 0.5 * (s.resolve ? D.RESOLVE.closedTrust : 1);
       if (short.towels) tg *= 0.6;
       if ((a.species === 'cat' && !short.churu) || (a.species === 'dog' && !a.fat && !short.dogchew)) tg *= 1.2;
+      // 산책장 = 훈련장: 개는 산책장에서 훈련받으며 신뢰가 오른다(훈련사가 있으면 더)
+      if (a.species === 'dog' && has(s, 'yard')) tg += D.YARD.trainTrust * yardBig * (train > 0 ? D.YARD.trainerBoost : 1);
       a.trust = clamp(a.trust + tg * ms, 0, 100);
       let sg = 0.2 + train * 1.8 / n + care * 0.6 / n + (short.toys ? 0 : 0.15);
       if (a.species === 'dog' && has(s, 'yard')) sg += 0.6 * b.energy * yardBig * (cs.walk.has(fac.id) ? 1.3 : 1);
+      // 활동량이 많은 품종은 뛸 곳이 없으면 사회성이 덜 오른다
+      else if (a.species === 'dog' && b.energy > 1) sg -= D.YARD.restless * (b.energy - 1);
       if (rainy) sg *= 0.5;
       if (a.fat) sg *= D.DIET.socialMult;
       a.social = clamp(a.social + sg * ms, 0, 100);
       if (a.fat && !short.dietFood) {
-        a.dietDays++;
+        a.dietDays += a.species === 'dog' && has(s, 'yard') && rand(s) < D.YARD.dietBoost ? 2 : 1;   // 산책장 운동
         if (a.dietDays >= D.DIET.days) {
           a.fat = false;
           s.stats.diets++;
@@ -717,7 +802,7 @@
     const fee = D.ADOPT_FEES[s.feeLevel];
     const celebOn = activeCelebs(s).length > 0;
     for (const a of [...s.animals]) {
-      if (!SIM.isReady(a)) continue;
+      if (!SIM.isReady(a) || a.reservedBy) continue;
       let p = 0.03 * D.BREEDS[a.breed].adopt * (1 + s.reputation / 400) * fee.adopt * (1 + groom * 0.04) * (a.fat ? D.DIET.adoptMult : 1) * SIM.ageAdopt(a);
       if (has(s, 'adoption')) p *= 1.5;
       if (cs.meet.size) p *= 1.2;
@@ -726,34 +811,22 @@
       for (const b of s.buffs) if (b.adopt && b.until > s.day && (!b.species || b.species === a.species)) p *= b.adopt;
       if (s.trend && a.breed === s.trend.breed && (phase === 'viral' || phase === 'boom')) p *= 1.4;
       if (rand(s) >= p) continue;
-      if (s.inv.carriers < 1) {
-        if (!s.shortNotice.carrierAdopt || s.day - s.shortNotice.carrierAdopt >= 10) {
-          s.shortNotice.carrierAdopt = s.day;
-          ev.push({ type: 'toast', text: `${a.name}의 새 가족이 왔는데 이동장이 없어요` });
-        }
-        continue;
-      }
-      s.inv.carriers--;
-      s.animals = s.animals.filter((x) => x !== a);
-      if (a.species === 'exotic') {
-        s.stats.placed++;
-        s.reputation += 6;
-        ev.push({ type: 'adopt', animal: a.id, text: `${D.BREEDS[a.breed].name} ${j(a.name, '이가')} 전문 보호시설로 떠났어요` });
-        pushFeed(s, `${D.BREEDS[a.breed].name} ${j(a.name, '이가')} 넓은 전문 보호시설에서 새 삶을 시작했다`, 'good');
-        continue;
-      }
-      s.stats.adopted++; s.ledger.adopted++; s.ledger.stayDays += a.days;
-      if (fee.fee) income(s, 'fee', fee.fee);
-      const gift = randInt(s, 10, 30) * 10_000;
-      income(s, 'gift', gift);
-      s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep : 0);
-      const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1);
-      s.album.unshift({ id: a.id, name: a.name, breed: a.breed, coat: a.coat, day: s.day, ageDays: a.ageDays, news: [], next: 0,
-        returnDay: willReturn ? s.day + randInt(s, 30, 90) : null, closed: a.closed });
-      if (s.album.length > 80) s.album.length = 80;
-      ev.push({ type: 'adopt', animal: a.id, text: `${a.name} 입양! (책임비 ${won(fee.fee)} · 후원 ${won(gift)})` });
-      pushFeed(s, a.closed ? `한때 마음을 닫았던 ${j(a.name, '이가')} 새 가족을 만났다` : SIM.ageGroup(a).key === 'senior' ? `${SIM.ageLabel(a.ageDays)} ${j(a.name, '이가')} 새 가족을 만났다. 노령 입양 이야기가 공유되고 있다` : `${a.name}의 새 가족이 입양 후기를 올렸다`, 'good');
+      adoptOne(s, a, ev);
     }
+
+    // 방문자 교감: 입양 준비된 아이와 놀다가 바로 입양을 원하거나, 준비가 끝나면 데려가겠다고 예약한다
+    for (const a of [...s.animals]) {
+      if (!a.reservedBy) continue;
+      if (s.day > a.reservedUntil) {   // 너무 오래 기다리면 약속이 풀린다
+        pushFeed(s, `${j(a.reservedBy, '이가')} 기다리다 다른 인연을 만났다. ${a.name}의 입양 약속이 풀렸다`, 'calm');
+        a.reservedBy = null;
+        continue;
+      }
+      if (!SIM.isReady(a)) continue;
+      const fam = a.reservedBy;
+      if (adoptOne(s, a, ev, { bonded: true, family: fam })) ev.push({ type: 'popup', title: '약속한 가족이 왔어요', body: `${j(fam, '이가')} 약속대로 ${j(a.name, '을를')} 데리러 왔어요.\n교감하고 간 입양은 파양이 적어요.` });
+    }
+    visitorTick(s, ev);
 
     // 입양 간 아이 소식과 '다시 돌아온 아이'
     for (const e of s.album) {
@@ -1091,6 +1164,19 @@
       a.health = Math.max(a.health, 40);
       if (s.intakePolicy === 'care') s.reputation += 3;
       ev.push({ type: 'toast', text: `${a.name} 수술 성공! 이제 회복만 남았어요` });
+    } else if (p.kind === 'visit') {
+      const a = s.animals.find((x) => x.id === p.animal);
+      if (!a) return { ok: true, events: ev };
+      if (choice === 'adopt' && SIM.isReady(a)) {
+        if (adoptOne(s, a, ev, { bonded: true, family: p.family })) ev.push({ type: 'toast', text: `${a.name}, ${j(p.family, '과와')} 함께 새 집으로!` });
+      } else if (choice === 'reserve') {
+        a.reservedBy = p.family;
+        a.reservedUntil = s.day + D.VISIT.reserveDays;
+        pushFeed(s, `${j(p.family, '이가')} ${a.name}의 입양 준비가 끝나길 기다리기로 했다`, 'good');
+      } else {
+        a.trust = Math.min(100, a.trust + 3);
+        pushFeed(s, `${j(p.family, '이가')} 다음에 다시 오겠다며 돌아갔다`, 'calm');
+      }
     } else if (p.kind === 'memorial') {
       const d = D.DAYS.find((x) => x.id === p.id), o = D.DAY_EVENT[choice === 'party' ? 'party' : 'post'];
       if (s.money < o.cost) return { ok: false, msg: '자금이 부족해요' };
@@ -1324,7 +1410,7 @@
   // 안내를 건너뛰면 견사·묘사를 바로 짓고 첫 식구를 들인다
   SIM.skipTutorial = (s) => {
     const spot = (type) => { for (let y = 3; y < s.gridH - 1; y++) for (let x = 2; x < s.gridW; x++) if (SIM.canPlace(s, type, x, y)) return [x, y]; return null; };
-    if (!Object.values(s.facilities).some((f) => f.type === 'kennel')) { const p = spot('kennel'); if (p) placeFacility(s, 'kennel', ...p); }
+    if (!Object.values(s.facilities).some((f) => f.type === 'bigkennel')) { const p = spot('bigkennel'); if (p) placeFacility(s, 'bigkennel', ...p); }
     if (!Object.values(s.facilities).some((f) => f.type === 'cattery')) { const p = spot('cattery'); if (p) placeFacility(s, 'cattery', ...p); }
     for (const f of Object.values(s.facilities)) f.buildLeft = 0;
     return SIM.tutorialArrive(s);

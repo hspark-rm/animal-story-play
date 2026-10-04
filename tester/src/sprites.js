@@ -18,7 +18,7 @@
   const SPR_TILE = (key) => (FILES.has(`iso-${key}`) ? `iso-${key}` : `tile-${key}`);
   SPR.preload = (scene) => {
     for (const key of FILES) {
-      if (/^(tile|animal|staff|named|iso|deco|bg|player|gt)-/.test(key)) scene.load.image(key, SPR.path(key));
+      if (/^(tile|animal|staff|named|iso|deco|bg|player|gt|yard|item)-/.test(key)) scene.load.image(key, SPR.path(key));
     }
   };
 
@@ -323,6 +323,8 @@
       if (cache[id]) return cache[id];
       const pk = pngKey(kind, key);
       if (pk && FILES.has(pk)) return (cache[id] = SPR.path(pk));
+      // 살찐 체형 그림이 없는 품종은 보통 그림을 쓴다(16칸 임시 그림으로 떨어지면 깨져 보인다)
+      if (kind === 'animal-fat' && FILES.has(`animal-${key}-0`)) return (cache[id] = SPR.path(`animal-${key}-0`));
       if (!['animal', 'animal-fat', 'staff', 'tile'].includes(kind) || (kind === 'tile' && !TILES[key])) return null;
       const c = document.createElement('canvas');
       c.width = 16; c.height = 16;

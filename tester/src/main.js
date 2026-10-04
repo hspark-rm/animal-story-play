@@ -54,7 +54,12 @@
     'iso-kennel': [114, 157], 'iso-cattery': [108, 179], 'iso-clinic': [130, 148], 'iso-yard': [108, 116],
     'iso-adoption': [119, 152], 'iso-storage': [119, 149], 'iso-shop': [110, 141], 'iso-construction': [108, 145],
     'iso-kennel-2x': [230, 233], 'iso-kennel-2y': [115, 225], 'iso-kennel-3x': [258, 242], 'iso-kennel-3y': [88, 252],
+    'iso-cattery-2x': [282, 296], 'iso-cattery-3x': [313, 251], 'iso-cattery-2y': [80, 236], 'iso-cattery-3y': [57, 271],
+    'iso-bigkennel': [115, 165], 'iso-bigkennel-2x': [233, 263], 'iso-bigkennel-3x': [277, 260], 'iso-bigkennel-2y': [97, 248], 'iso-bigkennel-3y': [82, 257],
   };
+  // 산책장 울타리 조각: [기준점 x 비율, 기준점 y 비율, 그림 속 변 가로 길이(px), 월드 가로 길이]
+  // 기준점 = 조각 왼쪽 끝이 바닥 변과 만나는 점. 값은 tools/make_yard_parts.py 출력에서 옮김
+  const YARD_FENCE = { 'yard-fence-x': [0, 30 / 74, 106, AX], 'yard-fence-y': [0, 80 / 85, 81, AY] };
   const facKey = (f) => {
     const t = f.buildLeft ? 'construction' : f.type;
     return SPR.has(`iso-${t}`) ? `iso-${t}` : `tile-${t}`;
@@ -175,26 +180,30 @@
     }
 
     /* 이어 지은 산책장: 칸마다 잔디를 깔고, 바깥 둘레에만 울타리를 세운다 */
+    // 이어 지은 산책장: 칸마다 잔디를 깔고, 바깥 변에만 산책장 그림에서 떼어 낸 울타리 조각을 세운다
+    // (tools/make_yard_parts.py). 위·왼쪽 변은 뒤 울타리, 오른쪽·아래 변은 앞 울타리
     drawYards(groups) {
-      if (!this.yardBack) { this.yardBack = this.add.graphics().setDepth(1.5); this.yardFront = this.add.graphics(); }
-      const back = this.yardBack.clear(), front = this.yardFront.clear();
-      let maxY = 0;
+      for (const o of this.yardObjs || []) o.destroy();
+      this.yardObjs = [];
+      const fx = SPR.has('yard-fence-x'), fy = SPR.has('yard-fence-y');
+      const fence = (key, at, front) => {
+        const [ox, oy, len, axisW] = YARD_FENCE[key];
+        const img = this.add.image(at.x, at.y, key).setOrigin(ox, oy).setScale(axisW / len);
+        img.setDepth(front ? 100 + at.y + 1 : 1.6);
+        this.yardObjs.push(img);
+      };
       for (const g of groups) {
         const inG = new Set(g.cells.map(([x, y]) => `${x},${y}`));
         for (const [x, y] of g.cells) {
-          const c = [iso(x, y), iso(x + 1, y), iso(x + 1, y + 1), iso(x, y + 1)];
-          back.fillStyle((x + y) % 2 ? 0x8ed36a : 0x84ca60, 1).fillPoints(c, true);
-          // 위·왼쪽 변은 뒤 울타리, 오른쪽·아래 변은 앞 울타리
-          const edges = [[c[0], c[1], x, y - 1, back], [c[3], c[0], x - 1, y, back], [c[1], c[2], x + 1, y, front], [c[2], c[3], x, y + 1, front]];
-          for (const [a, b, nx, ny, gfx] of edges) {
-            if (inG.has(`${nx},${ny}`)) continue;
-            for (const t of [0, 0.5, 1]) gfx.fillStyle(0x7a5232, 1).fillRect(a.x + (b.x - a.x) * t - 2, a.y + (b.y - a.y) * t - 20, 4, 20);
-            for (const h of [6, 14]) gfx.lineStyle(3, 0xc9935a, 1).lineBetween(a.x, a.y - h, b.x, b.y - h);
-            maxY = Math.max(maxY, a.y, b.y);
-          }
+          const top = iso(x, y);
+          if (SPR.has('gt-grass-b')) this.yardObjs.push(this.add.image(top.x, top.y, (x + y) % 2 ? 'gt-grass-a' : 'gt-grass-b').setOrigin(85 / 198, 1 / 95).setScale(0.5).setTint(0xd8f2a0).setDepth(1.4));
+          if (!fx || !fy) continue;
+          if (!inG.has(`${x},${y - 1}`)) fence('yard-fence-x', iso(x, y), false);          // 뒤 오른쪽 변
+          if (!inG.has(`${x - 1},${y}`)) fence('yard-fence-y', iso(x, y + 1), false);      // 뒤 왼쪽 변
+          if (!inG.has(`${x},${y + 1}`)) fence('yard-fence-x', iso(x, y + 1), true);       // 앞 왼쪽 변
+          if (!inG.has(`${x + 1},${y}`)) fence('yard-fence-y', iso(x + 1, y + 1), true);   // 앞 오른쪽 변
         }
       }
-      front.setDepth(100 + maxY + 3);
     }
 
     fitCamera(first) {
@@ -271,9 +280,11 @@
       // 이어 지은 견사는 긴 건물 한 동으로, 이어 지은 산책장은 울타리 마당으로 그린다
       const groups = SIM.groups(state);
       const kRole = {};
-      for (const g of groups.kennel) g.ids.forEach((id, i) => { kRole[id] = { g, lead: i === 0 }; });
       this.kAxis = {};
-      for (const g of groups.kennel) if (g.len > 1) for (const id of g.ids) this.kAxis[id] = g.axis;
+      for (const type of D.MERGE_LINE) for (const g of groups[type]) {
+        g.ids.forEach((id, i) => { kRole[id] = { g, lead: i === 0 }; });
+        if (g.len > 1) for (const id of g.ids) this.kAxis[id] = g.axis;
+      }
       const yardBig = new Set(groups.yard.filter((g) => g.len > 1).flatMap((g) => g.ids));
       this.drawYards(groups.yard.filter((g) => g.len > 1));
       for (const f of Object.values(state.facilities)) {
@@ -283,7 +294,7 @@
         let width = TILE_W * n, originX = FRONT, hidden = yardBig.has(f.id);
         const kr = kRole[f.id];
         if (kr && kr.g.len > 1) {
-          const { g } = kr, L = g.len, mk = `iso-kennel-${L}${g.axis}`;
+          const { g } = kr, L = g.len, mk = `iso-${g.type}-${L}${g.axis}`;
           if (!kr.lead) hidden = true;
           else if (SPR.has(mk)) {
             key = mk;
@@ -307,6 +318,7 @@
           if (!first) { const s = img.scaleY; this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 220, ease: 'Back.Out' }); }
           this.facLayer[f.id] = img;
         } else if (img.texture.key !== key) {
+          img.setVisible(!hidden);
           img.setTexture(key);
           anchorImg(img, key);
           img.sig = sig;
@@ -369,14 +381,88 @@
     // 동물은 집 건물 앞쪽 띠(앞 두 변 근처)에 세운다. 건물 그림 안쪽에 두면 지붕에 가려 안 보인다.
     // 이어 지은 견사는 긴 벽 앞으로만 다닌다(칸 사이 벽 쪽으로 가면 건물 속에 묻힌다)
     spotIn(f) {
-      const n = SIM.size(f.type), r = Math.random, along = 0.15 + r() * (n - 0.3), depth = n - 0.05 - r() * 0.2;
+      const n = SIM.size(f.type), r = Math.random, along = 0.15 + r() * (n - 0.3);
+      // 벽 바로 앞(바닥 바깥 0.1~0.4칸)에 세운다. 벽 안쪽에 세우면 벽이 비쳐 보이는 것처럼 겹친다
+      let depth = n + 0.1 + r() * 0.3;
       const axis = this.kAxis && this.kAxis[f.id];
       // 앞 칸에 다른 건물이 있는 변은 피한다(그 건물 지붕 위에 서 있는 것처럼 보인다)
       const blocked = (edge) => { for (let i = 0; i < n; i++) { const o = edge === 'y' ? SIM.facilityAt(state, f.x + i, f.y + n) : SIM.facilityAt(state, f.x + n, f.y + i); if (o && o.id !== f.id && o.type !== 'yard') return true; } return false; };
       const by = blocked('y'), bx = blocked('x');
       let onY = axis ? axis === 'x' : r() < 0.5;     // 앞쪽 y변(왼쪽 앞) 또는 x변(오른쪽 앞)
       if (!axis && by !== bx) onY = !by;
+      if (onY ? by : bx) depth = n - 0.1;   // 앞이 막힌 변밖에 없으면 벽 앞쪽 안에 둔다
       return onY ? iso(f.x + along, f.y + depth) : iso(f.x + depth, f.y + along);
+    }
+
+    // 동물 하루 일과(화면만): 산책·산책장 훈련·장난감 놀이·집 앞 쉬기. 물품이 있어야 놀이가 나온다
+    pickActivity(spr, home) {
+      const a = spr.animal, inv = state.inv, r = Math.random();
+      spr.arrived = false;
+      spr.act = 'home';
+      spr.target = this.spotIn(home);
+      if (!a) return;
+      if (a.species === 'dog') {
+        const yards = Object.values(state.facilities).filter((f) => f.type === 'yard' && !f.buildLeft);
+        const energy = D.BREEDS[a.breed].energy;
+        if (yards.length && r < 0.3) {
+          const y = yards.reduce((m, f) => (Math.hypot(f.x - home.x, f.y - home.y) < Math.hypot(m.x - home.x, m.y - home.y) ? f : m));
+          spr.act = 'train'; spr.target = iso(y.x + 0.2 + Math.random() * 0.6, y.y + 0.2 + Math.random() * 0.6);
+        } else if (r < 0.3 + 0.25 * energy) {
+          const t = this.walkSpot(a, home);
+          if (t) { spr.act = 'walk'; spr.target = t; }
+        } else if (r < 0.95 && ((inv.toys || 0) > 0 || (inv.dogchew || 0) > 0)) spr.act = 'play';
+      } else if (a.species === 'cat' && r < 0.3 && ((inv.toys || 0) > 0 || (inv.churu || 0) > 0)) spr.act = 'play';
+    }
+
+    // 산책 범위: 활동량 × 몸집 × 나이·체형(DATA.WALK). 부지 안, 건물이 없는 칸(산책장은 지나가도 된다)
+    walkSpot(a, home) {
+      const W = D.WALK, n = SIM.size(home.type), g = SIM.ageGroup(a).key;
+      const R = Math.min(W.max, D.BREEDS[a.breed].energy * W.perEnergy * W[SIM.dogSize(a)] * (g === 'baby' ? W.baby : g === 'senior' ? W.senior : 1) * (a.fat ? W.fat : 1));
+      const cx = home.x + n / 2, cy = home.y + n / 2;
+      for (let i = 0; i < 8; i++) {
+        const ang = Math.random() * Math.PI * 2, d = 0.8 + Math.random() * Math.max(0.2, R - 0.8);
+        const tx = cx + Math.cos(ang) * d, ty = cy + Math.sin(ang) * d;
+        if (tx < 0.2 || ty < 0.2 || tx > COLS - 0.2 || ty > ROAD - 0.2) continue;
+        const f = SIM.facilityAt(state, Math.floor(tx), Math.floor(ty));
+        if (f && f.type !== 'yard') continue;
+        return iso(tx, ty);
+      }
+      return null;
+    }
+
+    onArrive(spr) {
+      const a = spr.animal;
+      if (!a || !spr.active) return;
+      if (spr.act === 'train') {
+        spr.hold = this.time.now + 2600;
+        this.tweens.add({ targets: spr, y: spr.y - 10, duration: 180, yoyo: true, repeat: 2, ease: 'Quad.Out' });
+        if (Math.random() < 0.6) this.floatText(spr.x, spr.y - 40, ['앉아!', '기다려!', '점프!', '잘했어!', '손!'][Math.floor(Math.random() * 5)], '#3a8a3a');
+      } else if (spr.act === 'play') this.play(spr);
+      else if (spr.act === 'fetch') { if (spr.onFetch) spr.onFetch(); spr.onFetch = null; spr.act = 'home'; spr.hold = this.time.now + 800; }
+      else if (spr.act === 'walk' && Math.random() < 0.4) spr.hold = this.time.now + 1200;   // 냄새 맡기
+    }
+
+    // 장난감·개껌·츄르 놀이. 물품 그림을 잠깐 띄운다
+    play(spr) {
+      const a = spr.animal, inv = state.inv, dir = spr.flipped ? -1 : 1;
+      const prop = (key, x, y) => { const img = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(spr.depth + 1); fitHeight(img, 15); return img; };
+      const opts = a.species === 'cat' ? ['toys', 'churu'] : ['toys', 'dogchew'];
+      const have = opts.filter((k) => (inv[k] || 0) > 0 && SPR.has(`item-${k}`));
+      if (!have.length) return;
+      const kind = have[Math.floor(Math.random() * have.length)];
+      if (kind === 'toys' && a.species === 'dog') {
+        // 공 던지기: 공이 굴러가면 쫓아가서 물어 온다
+        const ball = prop('item-toys', spr.x + dir * 8, spr.y);
+        const to = { x: spr.x + dir * (40 + Math.random() * 30), y: spr.y + (Math.random() - 0.5) * 24 };
+        this.tweens.add({ targets: ball, x: to.x, y: to.y, duration: 650, ease: 'Quad.Out' });
+        spr.act = 'fetch'; spr.target = to; spr.arrived = false;
+        spr.onFetch = () => { ball.destroy(); this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); };
+        return;
+      }
+      const img = prop(`item-${kind}`, spr.x + dir * 12, spr.y - 2);
+      spr.hold = this.time.now + 2800;
+      this.tweens.add({ targets: spr, angle: { from: -5, to: 5 }, duration: 160, yoyo: true, repeat: 6, onComplete: () => { spr.angle = 0; } });
+      this.time.delayedCall(2800, () => { img.destroy(); if (spr.active) this.floatText(spr.x, spr.y - 36, a.species === 'cat' ? '♥' : '♪', '#e85a7a'); });
     }
 
     leave(spr) {
@@ -391,7 +477,33 @@
       this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: 1400, onComplete: () => t.destroy() });
     }
 
+    // 방문자: 길에서 걸어와 아이 곁에서 하트를 띄우고 돌아간다(입양되면 아이와 함께 떠난다)
+    visit(animalId) {
+      const spr = this.animalSpr[animalId];
+      const base = Math.random() < 0.5 ? 'player-m' : 'player-f';
+      if (!spr || !SPR.has(`${base}-0`)) return;
+      const tints = [0xffffff, 0xffe0e0, 0xe0f0ff, 0xfff0c8, 0xe8ffe0];
+      const start = tileCenter(Math.floor(Math.random() * COLS), ROAD);
+      const v = this.add.sprite(start.x, start.y, `${base}-0`).setOrigin(0.5, 1).setTint(tints[Math.floor(Math.random() * tints.length)]);
+      v.base = base;
+      fitHeight(v, 52);
+      (this.visitors = (this.visitors || []).filter((x) => x.active)).push(v);
+      spr.hold = this.time.now + 9000;   // 교감하는 동안 제자리에 있는다
+      const goal = { x: spr.x + 22, y: spr.y + 6 };
+      const walk = (to, done) => {
+        const d = Math.hypot(to.x - v.x, to.y - v.y);
+        v.moving = true; v.flipped = to.x < v.x; v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX);
+        this.tweens.add({ targets: v, x: to.x, y: to.y, duration: d * 9, onUpdate: () => v.setDepth(CHAR_DEPTH + v.y + 2), onComplete: () => { v.moving = false; done(); } });
+      };
+      walk(goal, () => {
+        v.flipped = true; v.scaleX = -Math.abs(v.scaleX);
+        for (let i = 0; i < 3; i++) this.time.delayedCall(i * 700, () => { if (spr.active) this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); });
+        this.time.delayedCall(2600, () => walk(tileCenter(COLS + 1, ROAD), () => v.destroy()));
+      });
+    }
+
     flipFrames() {
+      for (const v of this.visitors || []) if (v.active) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); fitHeight(v, 52); if (v.flipped) v.scaleX = -Math.abs(v.scaleX); }
       for (const spr of Object.values(this.animalSpr)) if (spr.active && spr.animal) this.sizeAnimal(spr);
       for (const spr of Object.values(this.staffSpr)) {
         const k = staffKey(spr.staff, spr.moving ? this.frame : 0);
@@ -429,9 +541,15 @@
       for (const spr of Object.values(this.animalSpr)) {
         const home = state.facilities[spr.homeId];
         if (!home || !spr.active) continue;
-        if (!spr.target || Math.random() < 0.004) spr.target = this.spotIn(home);
-        const step = (spr.animal && spr.animal.fat ? 0.45 : 0.8) * k;
-        if (this.wander(spr, spr.target, step) && Math.random() < 0.02) spr.target = this.spotIn(home);
+        if (spr.hold && spr.hold > this.time.now) { spr.moving = false; spr.setDepth(CHAR_DEPTH + spr.y + 1); continue; }
+        if (!spr.target) this.pickActivity(spr, home);
+        const a = spr.animal, bb = a && D.BREEDS[a.breed];
+        const pace = a && a.species === 'dog' ? (SIM.dogSize(a) === 'large' ? 1.15 : 0.9) * Math.min(1.3, bb.energy) : 0.7;
+        const step = (a && a.fat ? 0.45 : 0.8) * pace * k;
+        if (this.wander(spr, spr.target, step)) {
+          if (!spr.arrived) { spr.arrived = true; this.onArrive(spr); }
+          else if (Math.random() < 0.012) this.pickActivity(spr, home);
+        }
         spr.setDepth(CHAR_DEPTH + spr.y + 1);   // 사람·동물은 건물보다 늘 앞에 그린다
       }
       const facs = Object.values(state.facilities);
@@ -545,6 +663,7 @@
     onModal() { UI.setSpeed(speed); },
     onBuildMode: setBuild,
     onMoveMode: setMove,
+    onVisit(id) { if (scene() && scene().visit) scene().visit(id); },
     onChange() { if (scene()) scene().sync(false); if (state) UI.save(state); },
     onRelayout() { if (scene()) scene().scene.restart(); },
     onNewGame() {

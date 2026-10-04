@@ -92,10 +92,12 @@
   // lv = 지을 수 있는 등급, days = 공사 기간(일). 공사 중에는 작동하지 않고 유지비도 들지 않는다
   DATA.FACILITIES = {
     // size = 차지하는 칸(정사각형 한 변). 견사·진료실은 2×2 큰 건물
-    kennel:   { name: '견사',       lv: 1, days: 4,  cost: 500_000,   upkeep: 20_000, cap: 2, species: 'dog', desc: '개 2마리가 지냅니다. 일렬로 붙여 지으면 최대 3칸짜리 긴 견사가 되고, 붙인 칸마다 1마리를 더 받아요.' },
-    cattery:  { name: '묘사',       lv: 1, days: 3,  cost: 400_000,   upkeep: 15_000, cap: 3, species: 'cat', desc: '고양이 3마리가 지냅니다.' },
+    // 개 집은 몸집으로 나눈다(2026-10-04): 소형견사 = 소형견, 대형견사 = 중·대형견
+    kennel:   { name: '소형견사',   lv: 1, days: 4,  cost: 500_000,   upkeep: 20_000, cap: 2, species: 'dog', dogSize: 'small', desc: '소형견 2마리가 지냅니다. 일렬로 붙여 지으면 최대 3칸짜리 긴 견사가 되고, 붙인 칸마다 1마리를 더 받아요.' },
+    bigkennel: { name: '대형견사',  lv: 1, days: 5,  cost: 650_000,   upkeep: 25_000, cap: 1, species: 'dog', dogSize: 'large', desc: '중·대형견 1마리가 넉넉히 지냅니다. 일렬로 붙여 지으면 최대 3칸짜리 긴 견사가 되고, 붙인 칸마다 1마리를 더 받아요.' },
+    cattery:  { name: '묘사',       lv: 1, days: 3,  cost: 400_000,   upkeep: 15_000, cap: 3, species: 'cat', desc: '고양이 3마리가 지냅니다. 일렬로 붙여 지으면 최대 3칸짜리 긴 묘사가 되고, 붙인 칸마다 1마리를 더 받아요.' },
     storage:  { name: '물품 창고',   lv: 1, days: 3,  cost: 500_000,   upkeep: 10_000, desc: '물품이 덜 상해 소비량이 15% 줄어듭니다.' },
-    yard:     { name: '산책장',     lv: 2, days: 5,  cost: 600_000,   upkeep: 15_000, desc: '개의 사회성이 오릅니다. 붙여 지으면 최대 8칸까지 한 마당이 되고, 넓을수록 효과가 커져요.' },
+    yard:     { name: '산책장',     lv: 2, days: 5,  cost: 600_000,   upkeep: 15_000, desc: '개들이 뛰놀며 훈련하는 곳. 사회성과 신뢰가 오르고 다이어트가 빨라져요. 활동량 많은 품종일수록 효과가 커요. 붙여 지으면 최대 8칸까지 한 마당이 돼요.' },
     adoption: { name: '입양 상담실', lv: 2, days: 7,  cost: 800_000,   upkeep: 30_000, desc: '입양 확률이 오릅니다.' },
     clinic:   { name: '진료실',     lv: 3, days: 12, size: 2, cost: 1_800_000, upkeep: 60_000, desc: '2×2칸. 수의사가 있으면 건강 회복이 빨라지고 진료를 안에서 해요.' },
     shop:     { name: '굿즈샵',     lv: 4, days: 8,  cost: 1_500_000, upkeep: 40_000, desc: '달마다 굿즈 매출이 납니다. 평판과 SNS 능력치가 클수록 잘 팔립니다.' },
@@ -172,45 +174,45 @@
   // 믹스견은 진도믹스로, 한국 고양이·믹스묘는 코숏으로 묶었다. 말티푸는 공고 품종에 따로 없어(대개 믹스견) 임의값이다.
   // life = 평균 수명(년), health = 흔히 말하는 건강 유의사항(게임 속 안내이며 수의학적 진단이 아니다)
   DATA.BREEDS = {
-    jindo:        { name: '진도믹스',       species: 'dog', base: 388, energy: 1.2, adopt: 0.8, life: [13, 15], colors: ['#e9d7b0', '#c9a978', '#3a2a1c'],
+    jindo:        { name: '진도믹스',       species: 'dog', size: 'large', base: 388, energy: 1.2, adopt: 0.8, life: [13, 15], colors: ['#e9d7b0', '#c9a978', '#3a2a1c'],
       health: '운동량이 많아 산책이 부족하면 스트레스를 받아요. 피부병과 낯가림을 살펴 주세요.' },
-    poodle:       { name: '푸들',           species: 'dog', base: 94, energy: 1.1, adopt: 1.1, life: [14, 17], colors: ['#9a5a34', '#c98a5a', '#2a1a12'],
+    poodle:       { name: '푸들',           species: 'dog', size: 'small', base: 94, energy: 1.1, adopt: 1.1, life: [14, 17], colors: ['#9a5a34', '#c98a5a', '#2a1a12'],
       health: '슬개골 탈구와 치아 관리에 신경 써야 해요. 털이 계속 자라 미용이 필요해요.' },
-    maltese:      { name: '말티즈',         species: 'dog', base: 78, energy: 0.9, adopt: 1.2, life: [12, 15], colors: ['#ffffff', '#ece8f0', '#2a2a33'],
+    maltese:      { name: '말티즈',         species: 'dog', size: 'small', base: 78, energy: 0.9, adopt: 1.2, life: [12, 15], colors: ['#ffffff', '#ece8f0', '#2a2a33'],
       health: '슬개골 탈구와 눈물 자국, 치아 질환이 흔해요. 심장 질환도 정기적으로 살펴 주세요.' },
-    pomeranian:   { name: '포메라니안',     species: 'dog', base: 52, energy: 1.0, adopt: 1.2, life: [12, 16], colors: ['#f0a050', '#ffd9a8', '#3a2a1c'],
+    pomeranian:   { name: '포메라니안',     species: 'dog', size: 'small', base: 52, energy: 1.0, adopt: 1.2, life: [12, 16], colors: ['#f0a050', '#ffd9a8', '#3a2a1c'],
       health: '기관지가 약하고 슬개골 탈구가 잦아요. 털이 빠지는 탈모 증상을 살펴 주세요.' },
-    bichon:       { name: '비숑',           species: 'dog', base: 30, energy: 1.0, adopt: 1.2, life: [14, 16], colors: ['#ffffff', '#e8e4f0', '#2a2a33'],
+    bichon:       { name: '비숑',           species: 'dog', size: 'small', base: 30, energy: 1.0, adopt: 1.2, life: [14, 16], colors: ['#ffffff', '#e8e4f0', '#2a2a33'],
       health: '피부가 예민하고 눈물 자국이 잘 생겨요. 슬개골도 살펴 주세요.' },
-    bordercollie: { name: '보더콜리',       species: 'dog', base: 24, energy: 1.8, adopt: 0.9, life: [12, 15], colors: ['#2a2a30', '#ffffff', '#1a1a1a'],
+    bordercollie: { name: '보더콜리',       species: 'dog', size: 'large', base: 24, energy: 1.8, adopt: 0.9, life: [12, 15], colors: ['#2a2a30', '#ffffff', '#1a1a1a'],
       health: '운동과 일이 부족하면 문제 행동이 생겨요. 고관절과 눈 질환을 살펴 주세요.' },
-    shihtzu:      { name: '시츄',           species: 'dog', base: 20, energy: 0.8, adopt: 1.0, life: [10, 16], colors: ['#f2f0ea', '#c9a060', '#2a1a12'],
+    shihtzu:      { name: '시츄',           species: 'dog', size: 'small', base: 20, energy: 0.8, adopt: 1.0, life: [10, 16], colors: ['#f2f0ea', '#c9a060', '#2a1a12'],
       health: '눈이 튀어나와 각막 상처가 잘 나요. 코가 짧아 더위에 약해요.' },
-    spitz:        { name: '스피츠',         species: 'dog', base: 18, energy: 1.3, adopt: 1.0, life: [12, 16], colors: ['#ffffff', '#f0ece4', '#2a2a33'],
+    spitz:        { name: '스피츠',         species: 'dog', size: 'small', base: 18, energy: 1.3, adopt: 1.0, life: [12, 16], colors: ['#ffffff', '#f0ece4', '#2a2a33'],
       health: '경계심이 강해 짖음이 많을 수 있어요. 슬개골과 털 관리를 챙겨 주세요.' },
-    labrador:     { name: '래브라도 리트리버', species: 'dog', base: 18, energy: 1.4, adopt: 0.9, life: [10, 13], colors: ['#e8c88a', '#f2dcae', '#3a2a1c'],
+    labrador:     { name: '래브라도 리트리버', species: 'dog', size: 'large', base: 18, energy: 1.4, adopt: 0.9, life: [10, 13], colors: ['#e8c88a', '#f2dcae', '#3a2a1c'],
       health: '살이 잘 찌고 고관절·팔꿈치 이형성증이 흔해요. 체중 관리가 중요해요.' },
-    shiba:        { name: '시바',           species: 'dog', base: 10, energy: 1.3, adopt: 1.0, life: [13, 16], colors: ['#d9824a', '#fff0d8', '#2a1a12'],
+    shiba:        { name: '시바',           species: 'dog', size: 'large', base: 10, energy: 1.3, adopt: 1.0, life: [13, 16], colors: ['#d9824a', '#fff0d8', '#2a1a12'],
       health: '독립심이 강하고 피부 알러지가 잦아요. 슬개골도 살펴 주세요.' },
-    schnauzer:    { name: '슈나우저',       species: 'dog', base: 10, energy: 1.2, adopt: 1.0, life: [12, 15], colors: ['#8a8a8a', '#c8c8c8', '#2a2a2a'],
+    schnauzer:    { name: '슈나우저',       species: 'dog', size: 'small', base: 10, energy: 1.2, adopt: 1.0, life: [12, 15], colors: ['#8a8a8a', '#c8c8c8', '#2a2a2a'],
       health: '고지혈증과 췌장염에 약해 기름진 음식을 피해야 해요. 요로결석도 살펴 주세요.' },
-    yorkie:       { name: '요크셔테리어',   species: 'dog', base: 8, energy: 1.0, adopt: 1.1, life: [13, 16], colors: ['#c9a060', '#4a5a7a', '#2a1a12'],
+    yorkie:       { name: '요크셔테리어',   species: 'dog', size: 'small', base: 8, energy: 1.0, adopt: 1.1, life: [13, 16], colors: ['#c9a060', '#4a5a7a', '#2a1a12'],
       health: '아주 작아 저혈당과 기관지 협착에 주의해요. 치아가 약해요.' },
-    golden:       { name: '골든 리트리버',  species: 'dog', base: 8, energy: 1.4, adopt: 0.9, life: [10, 12], colors: ['#e0a850', '#f2cf8a', '#3a2a1c'],
+    golden:       { name: '골든 리트리버',  species: 'dog', size: 'large', base: 8, energy: 1.4, adopt: 0.9, life: [10, 12], colors: ['#e0a850', '#f2cf8a', '#3a2a1c'],
       health: '고관절 이형성증과 피부병, 종양이 비교적 잦아요. 체중 관리가 중요해요.' },
-    chihuahua:    { name: '치와와',         species: 'dog', base: 8, energy: 1.0, adopt: 1.0, life: [14, 18], colors: ['#e8c890', '#f5e2bc', '#2a1a12'],
+    chihuahua:    { name: '치와와',         species: 'dog', size: 'small', base: 8, energy: 1.0, adopt: 1.0, life: [14, 18], colors: ['#e8c890', '#f5e2bc', '#2a1a12'],
       health: '추위에 약하고 슬개골 탈구가 잦아요. 정수리 뼈가 덜 닫힌 아이도 있어요.' },
-    frenchie:     { name: '프렌치 불독',    species: 'dog', base: 6, energy: 0.8, adopt: 1.1, life: [10, 12], colors: ['#e8d8b8', '#f5ead4', '#2a1a12'],
+    frenchie:     { name: '프렌치 불독',    species: 'dog', size: 'small', base: 6, energy: 0.8, adopt: 1.1, life: [10, 12], colors: ['#e8d8b8', '#f5ead4', '#2a1a12'],
       health: '코가 짧아 호흡이 힘들고 더위에 아주 약해요. 척추와 피부를 살펴 주세요.' },
-    maltipoo:     { name: '말티푸',         species: 'dog', base: 6, energy: 1.0, adopt: 1.2, life: [12, 16], colors: ['#f5e6c8', '#fff4e0', '#3a2a1c'],
+    maltipoo:     { name: '말티푸',         species: 'dog', size: 'small', base: 6, energy: 1.0, adopt: 1.2, life: [12, 16], colors: ['#f5e6c8', '#fff4e0', '#3a2a1c'],
       health: '말티즈와 푸들처럼 슬개골과 눈물 자국, 치아 관리가 필요해요.' },
-    corgi:        { name: '웰시코기',       species: 'dog', base: 4, energy: 1.6, adopt: 1.2, life: [12, 14], colors: ['#e08a3c', '#fff4e4', '#3a2a1c'],
+    corgi:        { name: '웰시코기',       species: 'dog', size: 'large', base: 4, energy: 1.6, adopt: 1.2, life: [12, 14], colors: ['#e08a3c', '#fff4e4', '#3a2a1c'],
       health: '허리가 길어 척추·디스크에 부담이 가요. 살이 잘 쪄서 체중 관리가 중요해요.' },
-    samoyed:      { name: '사모예드',       species: 'dog', base: 4, energy: 1.5, adopt: 1.0, life: [12, 14], colors: ['#ffffff', '#f2f0ea', '#2a2a33'],
+    samoyed:      { name: '사모예드',       species: 'dog', size: 'large', base: 4, energy: 1.5, adopt: 1.0, life: [12, 14], colors: ['#ffffff', '#f2f0ea', '#2a2a33'],
       health: '두꺼운 털 때문에 더위에 약해요. 고관절과 신장 질환을 살펴 주세요.' },
-    dachshund:    { name: '닥스훈트',       species: 'dog', base: 4, energy: 1.1, adopt: 1.0, life: [12, 16], colors: ['#a0522d', '#c9824a', '#2a1a12'],
+    dachshund:    { name: '닥스훈트',       species: 'dog', size: 'small', base: 4, energy: 1.1, adopt: 1.0, life: [12, 16], colors: ['#a0522d', '#c9824a', '#2a1a12'],
       health: '허리가 아주 길어 디스크가 잘 생겨요. 계단과 높은 곳을 피해 주세요.' },
-    husky:        { name: '시베리안 허스키', species: 'dog', base: 2, energy: 1.9, adopt: 0.8, life: [12, 15], colors: ['#8a8a92', '#ffffff', '#2a2a30'],
+    husky:        { name: '시베리안 허스키', species: 'dog', size: 'large', base: 2, energy: 1.9, adopt: 0.8, life: [12, 15], colors: ['#8a8a92', '#ffffff', '#2a2a30'],
       health: '운동량이 아주 많고 더위에 약해요. 탈출을 잘해서 울타리를 꼼꼼히 살펴 주세요.' },
     // 한국 고양이(코숏)는 공고 578건을 털색별로 나눴다. 털색 비율은 공식 통계가 없어 추정값이다
     korshort:     { name: '코숏 고등어',     species: 'cat', base: 170, energy: 1.0, adopt: 0.9, life: [12, 18], colors: ['#9a9aa2', '#5e5e68', '#2a2a33'],
@@ -378,6 +380,27 @@
     wishlist: { name: '필요 물품 목록 공유',   cost: 100_000,   days: 30, desc: '30일간 후원 물품이 두 배로 자주 와요' },
   };
 
+  // 방문자 교감 → 입양(2026-10-04). 가족이 찾아와 아이 하나와 놀고, 마음에 들면 바로 입양하거나
+  // 아직 준비가 덜 됐으면 준비가 끝날 때까지 기다리겠다고 약속한다. 교감 후 입양은 파양이 적다
+  DATA.VISIT = {
+    fromDay: 20, cooldown: 6, base: 0.06, adoptionRoom: 1.5,
+    minTrust: 35, trustGain: 6, socialGain: 5,
+    wantRate: 0.45, likeBoost: 1.8, bondReturn: 0.4, reserveDays: 60,
+    families: [
+      { name: '초등학생 남매네 가족', likes: 'baby' },
+      { name: '신혼부부', likes: 'baby' },
+      { name: '은퇴한 노부부', likes: 'senior' },
+      { name: '혼자 사는 직장인', likes: 'adult' },
+      { name: '마당 있는 주택의 가족', likes: 'adult' },
+      { name: '첫 반려를 준비하는 대학원생', likes: null },
+      { name: '예전에 노견을 보낸 가족', likes: 'senior' },
+    ],
+    acts: {
+      dog: ['산책 줄을 잡자 {n} 먼저 앞장섰어요', '공을 던지자 {n} 물어 와서 발 앞에 놓았어요', '{n} 손바닥에 올린 간식을 조심조심 받아먹었어요', '쪼그려 앉자 {n} 무릎에 턱을 올렸어요'],
+      cat: ['낚싯대 장난감에 {n} 한참을 뛰어올랐어요', '{n} 손등에 머리를 비볐어요', '가만히 앉아 있자 {n} 무릎으로 올라왔어요', '{n} 눈을 천천히 깜빡이며 인사했어요'],
+    },
+  };
+
   // 기념일: 해마다 같은 날 찾아온다. 행사를 열지, SNS에 글만 올릴지 고른다.
   // species가 있으면 그 종의 입양만 늘고, null이면 모든 아이의 입양이 는다
   DATA.DAYS = [
@@ -424,7 +447,16 @@
     shiba:      [['적색', null, 6], ['흑색', 0x706068, 1]],
   };
 
-  DATA.MERGE = { kennel: 3, yard: 8, yardBonus: 0.1 };
+  // 산책장은 훈련장을 겸한다(2026-10-04). 개 신뢰 +trainTrust/일(훈련사 있으면 ×trainerBoost),
+  // 활동량 많은 품종은 산책장이 없으면 사회성이 덜 오르고, 다이어트 중이면 운동으로 하루가 더 줄 수 있다
+  DATA.YARD = { trainTrust: 0.15, trainerBoost: 1.5, restless: 0.3, dietBoost: 0.3 };
+  // 화면 속 산책 범위(칸): 품종 활동량 × 몸집 × 나이·체형. 고양이는 집 앞에만 있는다
+  DATA.WALK = { perEnergy: 2.4, small: 0.8, large: 1.2, baby: 0.6, senior: 0.5, fat: 0.6, max: 4 };
+
+  // 일렬로 이어 지으면 한 동이 되는 시설과 최대 칸 수. 산책장은 모양 상관없이 최대 8칸
+  DATA.MERGE = { kennel: 3, bigkennel: 3, cattery: 3, yard: 8, yardBonus: 0.1 };
+  DATA.MERGE_LINE = ['kennel', 'bigkennel', 'cattery'];
+  DATA.DOG_SIZE = { small: '소형견', large: '중·대형견' };
   DATA.MOVE_RATE = 0.1;   // 건물 옮기기 비용 = 건설비의 10% (철거 환급은 30%)
 
   DATA.CORPORATE = { minRep: 300, monthly: 1_000_000, months: 12 };
@@ -438,18 +470,20 @@
   ];
 
   // 이웃 보호소 NPC. 이름은 실제 단체와 겹치지 않는지 tools/check_names.js로 확인했다.
-  // 지역·유형 비율은 수도권 조사(게재 106곳: 경기 52·서울 44·인천 5, 구조·보호 67·옹호·연구 14·혼합 12)를 따른다
+  // 유형 비율은 실제 조사(게재 106곳)를 따르되, 지역은 가상 도시로 바꿨다(2026-10-04 사용자 요청).
+  // 실제 지역 비율 경기 52·서울 44·인천 5 → 솔마루시·다온시·해솔항
+  DATA.HOME_CITY = '다온시';
   DATA.NPCS = [
-    { name: '햇살꼬리 쉼터',     region: '경기', type: '구조·보호', size: 3 },
-    { name: '포근발자국 하우스', region: '경기', type: '구조·보호', size: 2 },
-    { name: '두근두근 냥이마을', region: '서울', type: '구조·보호', size: 2 },
-    { name: '별빛산책 보금자리', region: '경기', type: '구조·보호', size: 4 },
-    { name: '온기한스푼',       region: '서울', type: '옹호·연구', size: 1 },
-    { name: '소나무언덕 친구들', region: '경기', type: '구조·보호', size: 2 },
-    { name: '다정한골목',       region: '서울', type: '혼합',      size: 2 },
-    { name: '바닷바람 멍냥소',   region: '인천', type: '구조·보호', size: 2 },
-    { name: '느린걸음 연구소',   region: '서울', type: '옹호·연구', size: 1 },
-    { name: '꼬마발 구조대',     region: '경기', type: '구조·보호', size: 3 },
+    { name: '햇살꼬리 쉼터',     region: '솔마루시', type: '구조·보호', size: 3 },
+    { name: '포근발자국 하우스', region: '솔마루시', type: '구조·보호', size: 2 },
+    { name: '두근두근 냥이마을', region: '다온시', type: '구조·보호', size: 2 },
+    { name: '별빛산책 보금자리', region: '솔마루시', type: '구조·보호', size: 4 },
+    { name: '온기한스푼',       region: '다온시', type: '옹호·연구', size: 1 },
+    { name: '소나무언덕 친구들', region: '솔마루시', type: '구조·보호', size: 2 },
+    { name: '다정한골목',       region: '다온시', type: '혼합',      size: 2 },
+    { name: '바닷바람 멍냥소',   region: '해솔항', type: '구조·보호', size: 2 },
+    { name: '느린걸음 연구소',   region: '다온시', type: '옹호·연구', size: 1 },
+    { name: '꼬마발 구조대',     region: '솔마루시', type: '구조·보호', size: 3 },
   ];
 
   DATA.TREND = {
