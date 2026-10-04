@@ -120,7 +120,8 @@
       else if (e.type === 'popup') UI.event(e.title, e.body);
       else if (e.type === 'quarter') showReport(e.report, e.prev, true);
       else if (e.type === 'ending') showEnding(e.report);
-      else if (e.type === 'visit') { if (hooks.onVisit) hooks.onVisit(e.animal, e.family); }
+      else if (e.type === 'visit') { if (hooks.onVisit) hooks.onVisit(e.animal, e.family, e.again); }
+      else if (e.type === 'season') { if (hooks.onSeason) hooks.onSeason(e.season); }
       else if (e.type === 'year') {
         const s = e.summary;
         UI.event(`${s.year}년차 결산`, `구조 ${s.rescued} · 입양 ${s.adopted} · 이송 ${s.transferred} · 다시 돌아온 아이 ${s.returned}\n정기후원자 ${s.donors}명 · 자금 ${won(s.money)}원\n이웃 보호소 ${s.total}곳 중 ${s.rank}위`);

@@ -31,9 +31,10 @@
     const m = Math.floor(day / DPM);
     return { year: Math.floor(m / 12) + 1, month: (m % 12) + 1, dayOfMonth: (day % DPM) + 1 };
   };
+  SIM.season = (day) => { const m = SIM.dateOf(day).month; return Object.keys(D.SEASONS).find((k) => D.SEASONS[k].months.includes(m)); };
   SIM.dateLabel = (day) => {
     const d = SIM.dateOf(day);
-    return `${d.year}년차 ${d.month}월 ${Math.ceil(d.dayOfMonth / 7.5)}주`;
+    return `${d.year}년차 ${d.month}월 ${Math.ceil(d.dayOfMonth / 7.5)}주 · ${D.SEASONS[SIM.season(day)].name}`;
   };
 
   /* ---------- 장부: 돈이 움직일 때는 모두 여기를 거친다 ---------- */
@@ -540,6 +541,8 @@
 
   // opts.forced = 지자체 위탁처럼 거절할 수 없는 입소
   function intakeAnimal(s, breedKey, quiet, events, opts = {}) {
+    // 고양이 출산기(봄~여름): 길에서 오는 고양이 중 아기 고양이 비중이 커진다
+    if (!quiet && !opts.returned && !opts.ageDays && D.BREEDS[breedKey].species === 'cat' && rand(s) < D.SEASONS[SIM.season(s.day)].kitten) opts = { ...opts, ageDays: randInt(s, 40, 100) };
     const a = makeAnimal(s, breedKey, quiet, opts);
     if (quiet || opts.returned || opts.forced) return admit(s, a, events);
     if (s.intakePolicy === 'healthy' && needsCare(a)) { sendAway(s, a, events, 'declined'); return null; }
@@ -764,7 +767,9 @@
     s.visitNext = s.day + V.cooldown;
     a.trust = Math.min(100, a.trust + V.trustGain);
     a.social = Math.min(100, a.social + V.socialGain);
-    ev.push({ type: 'visit', animal: a.id, family: fam.name });
+    s.visitCount = s.visitCount || {};
+    const times = (s.visitCount[fam.name] = (s.visitCount[fam.name] || 0) + 1);
+    ev.push({ type: 'visit', animal: a.id, family: fam.name, again: times > 1 });
     if (rand(s) < V.wantRate * SIM.ageAdopt(a) * (fam.likes === SIM.ageGroup(a).key ? V.likeBoost : 1) * (SIM.decorCombos(s).has('garden') ? 1.1 : 1)) {
       s.pending.push({ kind: 'visit', animal: a.id, family: fam.name, act, ready: SIM.isReady(a), issues: SIM.readyIssues(a) });
     } else {
@@ -809,6 +814,13 @@
         checkNewCombos(s, ev);
       }
     }
+    // 계절이 바뀌면 알린다
+    if (SIM.season(s.day) !== SIM.season(s.day - 1)) {
+      const se = D.SEASONS[SIM.season(s.day)];
+      ev.push({ type: 'toast', text: se.msg });
+      ev.push({ type: 'season', season: SIM.season(s.day) });
+      pushFeed(s, se.msg, 'calm');
+    }
     // 기념일(세계 고양이의 날 등)
     const today = SIM.dateOf(s.day);
     for (const d of D.DAYS) if (today.month === d.month && today.dayOfMonth === d.day && !s.pending.some((p) => p.kind === 'memorial')) s.pending.push({ kind: 'memorial', id: d.id });
@@ -831,6 +843,8 @@
     const yardTrain = 1 + (hasYardItem(s, 'aframe') ? D.YARD_ITEMS.aframe.train : 0) + (hasYardItem(s, 'hurdle') ? D.YARD_ITEMS.hurdle.train : 0) + (dcs.has('course') ? 0.2 : 0);
     const yardSocial = 1 + (hasYardItem(s, 'tunnel') ? D.YARD_ITEMS.tunnel.social : 0);
     const catTower = decorList(s, 'cattower').length > 0;
+    const season = D.SEASONS[SIM.season(s.day)];
+    const seasonHeal = season.heal;
 
     const births = [];
     for (const a of s.animals) {
@@ -842,7 +856,7 @@
       const fac = s.facilities[a.home];
       const ms = SIM.makeshift(s, a) ? D.EXOTIC.makeshift : 1;   // 전용이 아닌 집(특수동물, 소형견사의 대형견)
       const healBonus = (cs.care.has(fac.id) || cs.catvet.has(fac.id)) ? 1.3 : 1;
-      const decorHeal = a.species === 'dog' ? dogDecorHeal : 1;
+      const decorHeal = (a.species === 'dog' ? dogDecorHeal : 1) * seasonHeal;
       let starving = (a.species === 'dog' && short.dogFood) || (a.species === 'cat' && short.catFood);
       if (a.allergy && a.allergy.known) starving = !!short.hypoFood;
       if (a.allergy && !a.allergy.known && !starving && rand(s) < D.ALLERGY.flare) allergyFlare(s, a, ev);
@@ -931,6 +945,7 @@
       if (has(s, 'adoption')) p *= 1.5;
       if (has(s, 'main')) p *= 1.15;                       // 본관 입양 상담
       p *= 1 + mood.adopt;                                 // 분위기
+      p *= D.SEASONS[SIM.season(s.day)].adopt || 1;        // 가을 산책철
       if (cs.meet.size) p *= 1.2;
       if (activeCampaign(s, 'adoptDay')) p *= 1.6;
       if (celebOn) p *= 1.3;
@@ -982,7 +997,7 @@
     // 길에서 오는 아이들 + 지자체 위탁 의무 수용
     let pIn = 0.1 + (100 - s.awareness) / 100 * 0.18;
     if (phase === 'wave') pIn += 0.2 * s.trend.intensity;
-    pIn *= D.INTAKE_RATE * SIM.speciesShare(s);
+    pIn *= D.INTAKE_RATE * SIM.speciesShare(s) * D.SEASONS[SIM.season(s.day)].intake;   // 여름 휴가철 유기 증가
     for (const b of s.buffs) if (b.intake && b.until > s.day) pIn *= b.intake;   // 바깥 사건으로 몰려드는 아이들
     // 튜토리얼 중(첫 식구가 오기 전)에는 길에서 오는 아이가 없다
     const quiet = s.tutorial && s.tutorial.step < 4;
@@ -1034,7 +1049,7 @@
   function monthly(s, ev) {
     const monthIdx = s.day / DPM;
 
-    income(s, 'donors', s.donors * s.donorFee);
+    income(s, 'donors', s.donors * s.donorFee * (SIM.dateOf(s.day).month === 12 ? D.SEASONS.winter.decGift : 1));   // 연말 후원
     if (s.corporate && s.corporate.until > s.day) income(s, 'corporate', s.corporate.monthly);
     else if (s.corporate) { s.corporate = null; s.corporateOffered = false; pushFeed(s, '기업 후원 계약이 끝났다', 'calm'); }
     if (s.subsidy) { income(s, 'subsidy', D.SUBSIDY.monthly); s.quotaLeft = D.SUBSIDY.quota; }

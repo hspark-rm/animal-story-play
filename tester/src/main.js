@@ -99,7 +99,8 @@
       SPR.build(this, D);
       this.cameras.main.setBackgroundColor(SPR.has('bg-canopy') ? '#5f9e45' : '#a8dcef');
       // 게임개발스토리식 배경: 지도 바깥을 숲 무늬 한 장으로 끝없이 채운다(빈 하늘색이 보이지 않게)
-      if (SPR.has('bg-canopy')) this.add.tileSprite(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 'bg-canopy').setTileScale(0.5).setDepth(-20);
+      this.seasonGround = []; this.seasonTrees = [];   // 계절 따라 색·그림을 바꿀 바닥과 바깥 나무
+      if (SPR.has('bg-canopy')) this.canopy = this.add.tileSprite(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 'bg-canopy').setTileScale(0.5).setDepth(-20);
       this.drawGround();
       this.drawDecor();
       // 구름: 지도 위쪽을 천천히 흘러간다(가리지 않게 반투명)
@@ -120,6 +121,106 @@
       this.fitCamera(true);
       this.scale.on('resize', () => this.fitCamera(false));
       this.sync(true);
+      this.applySeason(SIM.season(state.day));
+      this.startTraffic();
+      this.setPaused(speed === 0);
+    }
+
+    // 일시정지: 날짜만 멈추는 게 아니라 걷기·트윈·타이머·눈비까지 모두 멈춘다
+    setPaused(p) {
+      this.paused = p;
+      this.time.paused = p;
+      if (p) this.tweens.pauseAll(); else this.tweens.resumeAll();
+      if (this.fx) { if (p) this.fx.pause(); else this.fx.resume(); }
+    }
+
+    // 계절: 바깥 숲·바닥 색, 바깥 나무 일부를 벚꽃·단풍으로, 겨울엔 눈사람과 하얀 막, 꽃잎·낙엽·눈이 흩날린다
+    applySeason(season) {
+      if (this.fx) { this.fx.destroy(); this.fx = null; }
+      if (this.winterVeil) { this.winterVeil.destroy(); this.winterVeil = null; }
+      for (const o of this.snowmen || []) o.destroy();
+      this.snowmen = [];
+      const tint = { spring: [0xffffff, 0xffffff], summer: [0xffffff, 0xeeffe0], autumn: [0xfff0c8, 0xf0b878], winter: [0xe6eef8, 0xc8d8e8] }[season];
+      for (const g of this.seasonGround) g.setTint(tint[0]);
+      if (this.canopy) this.canopy.setTint(tint[1]);
+      const swap = { spring: 'bg-tree-spring', autumn: 'bg-tree-autumn' }[season];
+      for (const t of this.seasonTrees) {
+        const k = swap && SPR.has(swap) && t.pick < 0.4 ? swap : t.baseKey;
+        if (t.texture.key !== k) { t.setTexture(k); fitHeight(t, t.baseH); }
+        t.setTint(season === 'winter' ? 0xd6e2ee : season === 'autumn' && k === t.baseKey ? 0xffd090 : 0xffffff);
+      }
+      if (season === 'winter') {
+        this.winterVeil = this.add.rectangle(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 0xffffff, 0.16).setDepth(-1.5);
+        if (SPR.has('bg-snowman')) for (const [x, y] of [[-1.2, ROWS - 3], [COLS + 0.6, 2.5], [COLS * 0.3, -1.4]]) {
+          const p = iso(x, y), m = this.add.image(p.x, p.y, 'bg-snowman').setOrigin(0.5, 1).setDepth(2 + x + y);
+          fitHeight(m, 44);
+          this.snowmen.push(m);
+        }
+      }
+      // 흩날리는 것: 작은 점 그림을 그때그때 만들어 쓴다
+      const fx = { spring: ['fx-petal', 0xf7b6c8], autumn: ['fx-leaf', 0xe8843c], winter: ['fx-snow', 0xffffff] }[season];
+      if (fx) {
+        if (!this.textures.exists(fx[0])) {
+          const g = this.make.graphics({ x: 0, y: 0, add: false });
+          g.fillStyle(fx[1], 1);
+          if (season === 'winter') g.fillCircle(3, 3, 3); else g.fillRect(0, 0, season === 'spring' ? 5 : 6, season === 'spring' ? 3 : 4);
+          g.generateTexture(fx[0], 6, 6);
+          g.destroy();
+        }
+        this.fx = this.add.particles(0, 0, fx[0], {
+          x: { min: -WORLD_W * 0.2, max: WORLD_W * 1.2 }, y: { min: TOP - 400, max: TOP - 100 },
+          lifespan: 16000, speedY: { min: 22, max: 40 }, speedX: { min: -12, max: 22 },
+          rotate: { min: 0, max: 360 }, scale: { min: 0.8, max: 1.6 }, alpha: { start: 0.95, end: 0.6 },
+          frequency: season === 'winter' ? 60 : 160, quantity: 1,
+        }).setDepth(5300);
+        if (this.paused) this.fx.pause();
+      }
+    }
+
+    // 바깥 길의 움직이는 것들: 차·버스·오토바이·자전거가 도로로, 개와 산책하는 이웃이 보도로 지나간다
+    startTraffic() {
+      const roads = [
+        { a: (t) => iso(t, ROWS + 1.5), from: -MARGIN, to: COLS + MARGIN },     // 앞 도로(x축)
+        { a: (t) => iso(COLS + 1.5, t), from: -MARGIN, to: ROWS + MARGIN },     // 오른쪽 도로(y축)
+      ];
+      const spawn = () => {
+        if (!this.scene.isActive()) return;
+        const r = roads[Math.random() < 0.6 ? 0 : 1], fwd = Math.random() < 0.5;
+        const t0 = fwd ? r.from : r.to, t1 = fwd ? r.to : r.from;
+        const p0 = r.a(t0), p1 = r.a(t1);
+        const roll = Math.random();
+        if (roll < 0.22) this.walker(r, fwd);   // 산책하는 이웃
+        else {
+          const kinds = [['bg-car', 40, true], ['bg-bus', 52, true], ['bg-scooter', 34, false], ['bg-cyclist', 36, false]].filter(([k]) => SPR.has(k));
+          const [key, h, isoFacing] = kinds[Math.floor(Math.random() * kinds.length)];
+          // 그림 방향: 차·버스는 왼쪽 앞을, 오토바이·자전거는 오른쪽을 본다. 화면에서 가는 방향에 맞춰 뒤집는다
+          const goRight = p1.x > p0.x;
+          const v = this.add.image(p0.x, p0.y, key).setOrigin(0.5, 0.92).setFlipX(isoFacing ? goRight : !goRight);
+          fitHeight(v, h);
+          const d = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+          this.tweens.add({ targets: v, x: p1.x, y: p1.y, duration: d * (key === 'bg-cyclist' ? 22 : 11), onUpdate: () => v.setDepth(this.charDepth(v.x, v.y)), onComplete: () => v.destroy() });
+        }
+        this.time.delayedCall(2500 + Math.random() * 5000, spawn);
+      };
+      this.time.delayedCall(1200, spawn);
+    }
+
+    walker(r, fwd) {
+      const people = ['visitor-grandpa', 'visitor-office', 'visitor-student', 'visitor-dad', 'visitor-bride'].filter((k) => SPR.has(`${k}-0`));
+      if (!people.length) return;
+      const off = (p) => ({ x: p.x, y: p.y - 18 });   // 도로보다 보도 쪽으로 조금
+      const p0 = off(r.a(fwd ? r.from : r.to)), p1 = off(r.a(fwd ? r.to : r.from));
+      const key = people[Math.floor(Math.random() * people.length)];
+      const v = this.add.sprite(p0.x, p0.y, `${key}-0`).setOrigin(0.5, 1).setScale(0.72);
+      v.base = key; v.passerby = true;
+      (this.visitors = (this.visitors || []).filter((x) => x.active)).push(v);
+      const breeds = Object.keys(D.BREEDS).filter((b) => D.BREEDS[b].species === 'dog' && SPR.has(`animal-${b}-0`));
+      const dog = this.add.sprite(p0.x + 16, p0.y + 3, `animal-${breeds[Math.floor(Math.random() * breeds.length)]}-0`).setOrigin(0.5, 1);
+      fitHeight(dog, 26);
+      const goRight = p1.x > p0.x;
+      if (!goRight) dog.scaleX = -Math.abs(dog.scaleX);
+      this.tweenPath(v, [p1], 26, () => v.destroy());
+      this.tweens.add({ targets: dog, x: p1.x + (goRight ? 16 : -16), y: p1.y + 3, duration: Math.hypot(p1.x - p0.x, p1.y - p0.y) * 26, onUpdate: () => dog.setDepth(this.charDepth(dog.x, dog.y)), onComplete: () => dog.destroy() });
     }
 
     /* 바닥: 차분한 두 톤 바둑판 잔디와 맨 앞 흙길, 뒤쪽 두 변에 나무 울타리 */
@@ -136,7 +237,7 @@
         for (let y = -MARGIN; y < ROWS + MARGIN; y++) {
           for (let x = -MARGIN; x < COLS + MARGIN; x++) {
             const p = iso(x, y);
-            originM(this.add.image(p.x, p.y, key(x, y)), 85 / 198, 1 / 95).setScale(0.5).setDepth(-2);
+            this.seasonGround.push(originM(this.add.image(p.x, p.y, key(x, y)), 85 / 198, 1 / 95).setScale(0.5).setDepth(-2));
           }
         }
       }
@@ -254,6 +355,7 @@
           const tx = x + 0.3 + hash(x + 7, y) * 0.4, ty = y + 0.3 + hash(x, y + 7) * 0.4;
           const p = iso(tx, ty);
           const img = this.add.image(p.x, p.y, key).setOrigin(0.5, 1).setDepth(2 + tx + ty);
+          if (key !== 'deco-bush') { img.baseKey = key; img.baseH = h0 + (h1 - h0) * r; img.pick = hash(x + 11, y + 13); this.seasonTrees.push(img); }
           fitHeight(img, h0 + (h1 - h0) * r);
           if (hash(x + 3, y + 5) < 0.5) img.setFlipX(true);
         }
@@ -618,7 +720,7 @@
     }
 
     // 방문자: 가족이 길에서 정문(앞 흙길 가운데)으로 들어와 아이에게 걸어가 교감하고, 다시 정문으로 나간다
-    visit(animalId, familyName) {
+    visit(animalId, familyName, again) {
       const spr = this.animalSpr[animalId];
       if (!spr) return;
       const fam = D.VISIT.families.find((f) => f.name === familyName);
@@ -633,6 +735,8 @@
         const v = this.add.sprite(street.x - i * 14, street.y + i * 4, `${key}-0`).setOrigin(0.5, 1).setScale(0.72);
         v.base = key;
         (this.visitors = (this.visitors || []).filter((x) => x.active)).push(v);
+        // 방문자 표시: 맨 앞 사람 머리 위에 "처음 왔어요~ / 또 왔어요~"
+        if (i === 0) v.label = this.add.text(v.x, v.y, again ? '또 왔어요~' : '처음 왔어요~', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '12px', color: again ? '#c0506e' : '#3b6fd0', backgroundColor: '#fffdf5', padding: { x: 4, y: 2 } }).setOrigin(0.5, 1).setDepth(5200);
         return v;
       });
       const offset = (pts, i) => pts.map((p) => ({ x: p.x - i * 14, y: p.y + i * 5 }));
@@ -845,6 +949,9 @@
         }
       }
       UI.hud();
+      // 방문자 머리 위 말: 따라다니고, 방문자가 떠나면 지운다
+      for (const v of this.visitors || []) if (v.label) { if (v.active) v.label.setPosition(v.x, v.y - v.displayHeight - 3); else { v.label.destroy(); v.label = null; } }
+      if (this.paused) return;
 
       const k = Math.max(1, speed) * dt / 16;
       // 건물 화면 범위는 세워질 때 커지는 연출이 있어 가끔 다시 잰다
@@ -999,7 +1106,8 @@
   }
 
   UI.init({
-    onSpeed(v) { speed = v; UI.setSpeed(v); },
+    onSpeed(v) { speed = v; UI.setSpeed(v); if (scene() && scene().setPaused) scene().setPaused(v === 0); },
+    onSeason(se) { if (scene() && scene().applySeason) scene().applySeason(se); },
     onModal() { UI.setSpeed(speed); },
     onBuildMode: setBuild,
     onMoveMode: setMove,
@@ -1008,7 +1116,7 @@
       try { localStorage.setItem('animal-story-view', MIR ? 'mirror' : 'normal'); } catch (e) { /* 막힌 창 */ }
       if (scene()) scene().scene.restart();
     },
-    onVisit(id, family) { if (scene() && scene().visit) scene().visit(id, family); },
+    onVisit(id, family, again) { if (scene() && scene().visit) scene().visit(id, family, again); },
     onChange() { if (scene()) scene().sync(false); if (state) UI.save(state); },
     onRelayout() { if (scene()) scene().scene.restart(); },
     onNewGame() {
