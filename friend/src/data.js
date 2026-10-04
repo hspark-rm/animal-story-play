@@ -323,9 +323,12 @@
     towels:   { name: '수건·담요',      unit: '장',  pack: 10,  price: 30_000,  per: { all: 0.05 },  lack: '신뢰가 더디게 올라요' },
     meds:     { name: '기본 약품',      unit: '세트', pack: 1,  price: 100_000, per: { sick: 0.05 }, lack: '치료 효과가 절반이 돼요' },
     carriers: { name: '이동장',         unit: '개',  pack: 1,   price: 30_000,  per: {},             lack: '입양 보낼 때 이동장이 없어요' },
-    toys:     { name: '장난감·간식',    unit: '묶음', pack: 1,  price: 20_000,  per: { all: 0.02 },  lack: '사회성 보너스가 없어요' },
+    toys:     { name: '장난감',         unit: '묶음', pack: 1,  price: 20_000,  per: { all: 0.02 },  lack: '사회성 보너스가 없어요', optional: true },
+    // 간식: 보통명사처럼 쓰이는 이름을 그대로 쓴다. 있으면 그 종의 신뢰가 20% 빨리 오른다
+    churu:    { name: '츄르',           unit: '개',  pack: 20,  price: 12_000,  per: { cat: 0.5 },   lack: '고양이와 친해지는 속도가 느려져요', optional: true },
+    dogchew:  { name: '개껌',           unit: '개',  pack: 30,  price: 15_000,  per: { dog: 0.5 },   lack: '강아지와 친해지는 속도가 느려져요', optional: true },
   };
-  DATA.START_ITEMS = { dogFood: 15, dietFood: 0, hypoFood: 0, catFood: 7, litter: 10, pads: 100, towels: 10, meds: 1, carriers: 2, toys: 2 };
+  DATA.START_ITEMS = { dogFood: 15, dietFood: 0, hypoFood: 0, catFood: 7, litter: 10, pads: 100, towels: 10, meds: 1, carriers: 2, toys: 2, churu: 20, dogchew: 30 };
   DATA.AUTO_BUY = { belowDays: 7, targetDays: 14, markup: 1.1 };
   // 후원 물품: w = 도착 빈도 가중치, qty = 한 번에 오는 양. 헌 수건이 가장 흔하다
   DATA.DONATED = [
@@ -334,7 +337,9 @@
     { item: 'catFood',  w: 3, qty: [3, 7],    text: '고양이 사료' },
     { item: 'pads',     w: 2, qty: [50, 100], text: '배변패드' },
     { item: 'litter',   w: 2, qty: [5, 10],   text: '고양이 모래' },
-    { item: 'toys',     w: 2, qty: [1, 3],    text: '장난감과 간식' },
+    { item: 'toys',     w: 2, qty: [1, 3],    text: '장난감' },
+    { item: 'churu',    w: 4, qty: [10, 40],  text: '츄르 한 상자' },
+    { item: 'dogchew',  w: 2, qty: [10, 30],  text: '개껌 한 봉지' },
     { item: 'carriers', w: 1, qty: [1, 2],    text: '안 쓰는 이동장' },
   ];
 
@@ -359,6 +364,8 @@
   DATA.REPORT = { dueDays: 10, latePenalty: 15, lateRep: 5 };
   // 강한 의지(일반인 경력): 자금 부족 단계가 한 달씩 늦게 오고, 마음을 닫은 아이의 신뢰가 더 빨리 오른다
   DATA.RESOLVE = { delay: 1, closedTrust: 1.25 };
+
+  DATA.MOVE_RATE = 0.1;   // 건물 옮기기 비용 = 건설비의 10% (철거 환급은 30%)
 
   DATA.CORPORATE = { minRep: 300, monthly: 1_000_000, months: 12 };
   DATA.SUBSIDY = { monthly: 1_500_000, quota: 4 };   // 대신 매달 4마리를 더 받아야 한다
@@ -398,7 +405,7 @@
     viral: (b) => [`#${b}챌린지 조회수 300만 돌파`, `"우리 집 ${b} 일상" 영상이 실시간 인기`, `${b} 분양 문의 폭주라는 뉴스가 떴다`],
     boom: (b) => [`요즘 산책길마다 ${b}`, `${b} 굿즈가 품절됐다`, `"${b} 키우기 생각보다 힘들어요" 글에 공감 1만`],
     wave: (b) => [`${j(b, '이가')} 길에서 발견됐다는 제보가 늘었다`, `"반짝 인기"가 지나간 자리에 ${b}들이 남았다`],
-    calm: ['비 오는 날 산책 못 한 아이들 사진이 올라왔다', '"입양은 가족을 맞는 일" 캠페인이 공유되고 있다', '이웃 보호소에 사료 기부 릴레이가 이어졌다'],
+    calm: ['츄르 한 개에 마음을 연 길고양이 이야기가 공유되고 있다', '비 오는 날 산책 못 한 아이들 사진이 올라왔다', '"입양은 가족을 맞는 일" 캠페인이 공유되고 있다', '이웃 보호소에 사료 기부 릴레이가 이어졌다'],
   };
 
   // 입양 간 아이 소식: [입양 후 개월 수, 문장 후보]

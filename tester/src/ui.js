@@ -571,6 +571,11 @@ ${flags.join(' · ') || '건강한 편이에요'}
     body.scrollTop = y;
   };
 
+  UI.moveHint = (f) => {
+    $('build-hint').hidden = !f;
+    if (f) $('build-hint-text').textContent = `${j(D.FACILITIES[f.type].name, '을를')} 옮길 자리를 누르세요 · ${won(SIM.moveCost(f))}원`;
+  };
+
   UI.buildHint = (type) => {
     $('build-hint').hidden = !type;
     if (type) $('build-hint-text').textContent = `${j(D.FACILITIES[type].name, '을를')} 지을 칸을 누르세요`;
@@ -583,7 +588,8 @@ ${flags.join(' · ') || '건강한 편이에요'}
     $('sheet').hidden = false;
     $('sheet-title').textContent = def.name;
     $('sheet-body').innerHTML = `${f.buildLeft ? `<div class="card"><b>공사 중</b><span class="note">${f.buildLeft}일 뒤 완공돼요. 그동안은 쓸 수 없어요.</span></div>` : ''}<p class="note">${def.desc} 유지비 월 ${won(def.upkeep)}원</p>${here.map(animalRow).join('')}
-      ${btn('demolish', f.id, '철거 (건설비 30% 환급)', { ghost: true })}`;
+      <div class="btns">${btn('move', f.id, `옮기기 · ${won(SIM.moveCost(f))}원 (건설비 10%)`, { disabled: state.money < SIM.moveCost(f) })}
+      ${btn('demolish', f.id, '철거 (건설비 30% 환급)', { ghost: true })}</div>`;
   };
 
   /* ---------- 연결 ---------- */
@@ -604,6 +610,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     loan: (a) => { const r = SIM.takeLoan(state, Number(a)); if (r.ok) UI.toast('대출금이 들어왔어요'); return r; },
     fee: (a) => SIM.setFee(state, Number(a)),
     policy: (a) => SIM.setIntakePolicy(state, a),
+    move: (a) => { UI.closeSheet(); hooks.onMoveMode(Number(a)); return null; },
     land: () => { const r = SIM.expandLand(state); if (r.ok) { UI.toast(r.msg); UI.closeSheet(); hooks.onRelayout(); } return r; },
     treat: (a) => { const [id, kind] = a.split(':'); const r = SIM.treat(state, Number(id), kind); if (r.ok) UI.toast(r.msg); return r; },
     rename: (a) => {
@@ -655,7 +662,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
       if (!b || b.disabled || !UI.currentChoice) return;
       UI.currentChoice.actions[Number(b.dataset.i)].run();
     });
-    $('build-cancel').addEventListener('click', () => hooks.onBuildMode(null));
+    $('build-cancel').addEventListener('click', () => { hooks.onBuildMode(null); hooks.onMoveMode(null); });
     $('coach-next').addEventListener('click', coachNext);
     $('coach-skip').addEventListener('click', coachSkip);
     $('report-btn').addEventListener('click', () => { UI.handle(SIM.submitReport(state, false)); hooks.onChange(); UI.hud(); });

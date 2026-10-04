@@ -2,30 +2,35 @@
 // 지도는 카이로소프트식 아이소메트릭(마름모 바닥)으로 그린다. 논리 격자(x, y)는 그대로 두고 화면 좌표만 바꾼다.
 (function (G) {
   const D = G.DATA, SIM = G.SIM, SPR = G.SPR, UI = G.UI;
-  const TW = 96, TH = 48;                                           // 마름모 한 칸의 너비·높이(월드 단위)
-  const TOP = 260;                                                  // 건물 지붕과 뒤쪽 풍경이 잘리지 않게 위쪽 여백
-  const MARGIN = 5;                                                 // 부지 바깥 동네 칸 수
+  // 바닥 격자의 두 축. 건물 그림이 정면 대칭이 아니라 왼쪽 앞에서 본 각도로 그려져 있어서,
+  // 그림 속 산책장 울타리에서 잰 기울기에 맞춘다(x축 0.367, y축 0.62, 가로폭 57:43)
+  const AX = 56, AXY = 56 * 0.367;   // x가 1 늘 때: 오른쪽으로 AX, 아래로 AXY
+  const AY = 42, AYY = 42 * 0.62;    // y가 1 늘 때: 왼쪽으로 AY, 아래로 AYY
+  const TILE_W = AX + AY;            // 한 칸 바닥의 가로폭
+  const FRONT = AX / TILE_W;         // 건물 그림에서 앞 꼭짓점이 놓인 가로 위치(왼쪽 기준 비율)
+  const MARGIN = 5;                  // 부지 바깥 동네 칸 수
   // 부지 크기는 땅 넓히기로 바뀐다. 장면을 만들 때마다 다시 계산한다
-  let COLS = D.GRID.cols, ROWS = D.GRID.rows, ROAD = ROWS - 1, OX = 0, WORLD_W = 0, WORLD_H = 0;
+  let COLS = D.GRID.cols, ROWS = D.GRID.rows, ROAD = ROWS - 1, OX = 0, TOP = 0, WORLD_W = 0, WORLD_H = 0;
   function setDims(s) {
     COLS = s.gridW; ROWS = s.gridH; ROAD = ROWS - 1;
-    OX = (ROWS + MARGIN) * TW / 2 + 40;
-    WORLD_W = (COLS + ROWS + MARGIN * 2) * TW / 2 + 80;
-    WORLD_H = (COLS + ROWS + MARGIN * 2) * TH / 2 + TOP + 60;
+    OX = 40 + MARGIN * AX + (ROWS + MARGIN) * AY;
+    TOP = 200 + MARGIN * (AXY + AYY);
+    WORLD_W = OX + (COLS + MARGIN) * AX + MARGIN * AY + 40;
+    WORLD_H = TOP + (COLS + MARGIN) * AXY + (ROWS + MARGIN) * AYY + 60;
   }
   const DPR = Math.min(window.devicePixelRatio || 1, 3);
 
   // 격자 칸(x, y) 안의 한 점(u, v는 0~1) → 월드 좌표
-  const iso = (x, y) => ({ x: OX + (x - y) * TW / 2, y: TOP + (x + y) * TH / 2 });
+  const iso = (x, y) => ({ x: OX + x * AX - y * AY, y: TOP + x * AXY + y * AYY });
   const tileCenter = (x, y) => iso(x + 0.5, y + 0.5);
-  // 월드 좌표 → 격자 칸
+  // 월드 좌표 → 격자 칸 (두 축 일차식의 역변환)
   const toTile = (wx, wy) => {
-    const a = (wx - OX) / (TW / 2), b = (wy - TOP) / (TH / 2);
-    return { x: Math.floor((a + b) / 2), y: Math.floor((b - a) / 2) };
+    const u = wx - OX, v = wy - TOP, det = AX * AYY + AY * AXY;
+    return { x: Math.floor((u * AYY + AY * v) / det), y: Math.floor((AX * v - AXY * u) / det) };
   };
 
   let state = null;
-  let speed = 1, buildType = null, acc = 0, game = null;
+  let speed = 1, buildType = null, moveId = null, acc = 0, game = null;
 
   // 그림 키: PNG가 있으면 PNG, 살찐 체형 PNG가 없으면 보통 체형을 옆으로 늘려 쓴다
   const animalTex = (a, frame) => {
@@ -214,22 +219,25 @@
         const key = facKey(f);
         const n = SIM.size(f.type);
         const base = iso(f.x + n / 2, f.y + n / 2);
-        const foot = iso(f.x + n, f.y + n).y;
+        const front = iso(f.x + n, f.y + n);   // 바닥의 앞 꼭짓점
         let img = this.facLayer[f.id];
+        // 옮긴 건물은 새 자리에 다시 세운다
+        if (img && (img.gx !== f.x || img.gy !== f.y)) { if (img.label) img.label.destroy(); img.destroy(); img = null; delete this.facLayer[f.id]; }
         if (!img) {
-          img = this.add.image(base.x, foot - 6 * n, key).setOrigin(0.5, 1).setDepth(100 + (f.x + f.y + n - 1) * 10);
-          fitWidth(img, TW * n * 0.92);
+          img = this.add.image(front.x, front.y + 2, key).setOrigin(FRONT, 1).setDepth(100 + front.y);
+          img.gx = f.x; img.gy = f.y;
+          fitWidth(img, TILE_W * n);
           if (!first) { const s = img.scaleY; this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 220, ease: 'Back.Out' }); }
           this.facLayer[f.id] = img;
         } else if (img.texture.key !== key) {
           img.setTexture(key);
-          fitWidth(img, TW * n * 0.92);
+          fitWidth(img, TILE_W * n);
           const s = img.scaleY;
           this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 260, ease: 'Back.Out' });
           this.floatText(base.x, base.y - 60, '완공!', '#e8743b');
         }
         if (f.buildLeft) {
-          if (!img.label) img.label = this.add.text(base.x, base.y - 70 * n, '', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '22px', color: '#3b2a20', stroke: '#ffffff', strokeThickness: 5 }).setOrigin(0.5).setDepth(5000);
+          if (!img.label) img.label = this.add.text(base.x, base.y - 60 * n, '', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '22px', color: '#3b2a20', stroke: '#ffffff', strokeThickness: 5 }).setOrigin(0.5).setDepth(5000);
           img.label.setText(`공사 ${f.buildLeft}일`);
         } else if (img.label) { img.label.destroy(); img.label = null; }
       }
@@ -332,7 +340,7 @@
         if (!spr.target || Math.random() < 0.004) spr.target = this.spotIn(home);
         const step = (spr.animal && spr.animal.fat ? 0.45 : 0.8) * k;
         if (this.wander(spr, spr.target, step) && Math.random() < 0.02) spr.target = this.spotIn(home);
-        spr.setDepth(100 + (spr.y - TOP) / (TH / 2) * 10 + 5);
+        spr.setDepth(100 + spr.y + 1);
       }
       const facs = Object.values(state.facilities);
       for (const spr of Object.values(this.staffSpr)) {
@@ -340,7 +348,7 @@
           const f = facs[Math.floor(Math.random() * facs.length)];
           spr.target = f ? iso(f.x + 0.5, Math.min(f.y + 1.2, ROAD + 0.5)) : tileCenter(COLS / 2, ROAD);
         }
-        spr.setDepth(100 + (spr.y - TOP) / (TH / 2) * 10 + 6);
+        spr.setDepth(100 + spr.y + 2);
       }
     }
 
@@ -348,9 +356,9 @@
       const g = this.gridLines;
       if (!g) return;
       g.clear();
-      if (!buildType) return;
+      if (!buildType && !moveId) return;
       for (let y = 0; y < ROAD; y++) for (let x = 0; x < COLS; x++) {
-        if (!SIM.canPlace(state, buildType, x, y)) continue;
+        if (moveId ? !SIM.canMove(state, moveId, x, y) : !SIM.canPlace(state, buildType, x, y)) continue;
         const p = [iso(x + 0.08, y + 0.08), iso(x + 0.92, y + 0.08), iso(x + 0.92, y + 0.92), iso(x + 0.08, y + 0.92)];
         g.fillStyle(0xffffff, 0.22).fillPoints(p, true);
         g.lineStyle(2, 0xffffff, 0.8).strokePoints(p, true);
@@ -362,6 +370,16 @@
       const w = this.cameras.main.getWorldPoint(p.x, p.y);
       const { x, y } = toTile(w.x, w.y);
       if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
+      if (moveId) {
+        const r = SIM.moveFacility(state, moveId, x, y);
+        UI.toast(r.msg || '옮길 수 없어요');
+        if (!r.ok) return;
+        UI.handle(r.events);
+        setMove(null);
+        this.sync(false);
+        UI.save(state);
+        return;
+      }
       if (buildType) {
         if (y >= ROAD) { UI.toast('길에는 지을 수 없어요'); return; }
         const r = SIM.build(state, buildType, x, y);
@@ -381,7 +399,14 @@
   const scene = () => game && game.scene.getScene('shelter');
   function setBuild(type) {
     buildType = type;
+    moveId = null;
     UI.buildHint(type);
+    if (scene()) scene().drawGrid();
+  }
+  function setMove(id) {
+    moveId = id;
+    buildType = null;
+    UI.moveHint(id && state.facilities[id]);
     if (scene()) scene().drawGrid();
   }
 
@@ -427,6 +452,7 @@
     onSpeed(v) { speed = v; UI.setSpeed(v); },
     onModal() { UI.setSpeed(speed); },
     onBuildMode: setBuild,
+    onMoveMode: setMove,
     onChange() { if (scene()) scene().sync(false); if (state) UI.save(state); },
     onRelayout() { if (scene()) scene().scene.restart(); },
     onNewGame() {

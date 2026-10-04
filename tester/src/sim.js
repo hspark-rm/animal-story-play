@@ -415,6 +415,7 @@
     }
     // 처음 바닥난 날과 그 뒤 열흘마다 알린다
     for (const k of Object.keys(short)) {
+      if (D.ITEMS[k].optional) continue;
       if (!s.shortNotice[k] || s.day - s.shortNotice[k] >= 10) {
         s.shortNotice[k] = s.day;
         ev.push({ type: 'toast', text: `${j(D.ITEMS[k].name, '이가')} 떨어졌어요. ${D.ITEMS[k].lack}` });
@@ -577,6 +578,7 @@
       let tg = 0.25 + train * 3 / n + care * 0.6 / n;
       if (a.closed && !a.opened) tg *= 0.5 * (s.resolve ? D.RESOLVE.closedTrust : 1);
       if (short.towels) tg *= 0.6;
+      if ((a.species === 'cat' && !short.churu) || (a.species === 'dog' && !a.fat && !short.dogchew)) tg *= 1.2;
       a.trust = clamp(a.trust + tg * ms, 0, 100);
       let sg = 0.2 + train * 1.8 / n + care * 0.6 / n + (short.toys ? 0 : 0.15);
       if (a.species === 'dog' && has(s, 'yard')) sg += 0.6 * b.energy * (cs.walk.has(fac.id) ? 1.3 : 1);
@@ -1041,6 +1043,32 @@
     expense(s, 'facility', f.cost);
     placeFacility(s, type, x, y, f.days);
     return { ok: true, msg: `${j(f.name, '이가')} 공사를 시작했어요. ${f.days}일 뒤 완공`, events: [] };
+  };
+
+  // 건물 옮기기: 비용은 건설비의 10%. 안에 사는 아이들은 그대로 따라간다
+  SIM.moveCost = (f) => Math.round(D.FACILITIES[f.type].cost * D.MOVE_RATE);
+  SIM.canMove = (s, id, x, y) => {
+    const f = s.facilities[id];
+    if (!f) return false;
+    for (const [cx, cy] of SIM.cellsOf(f)) s.grid[idx(s, cx, cy)] = null;
+    const ok = SIM.canPlace(s, f.type, x, y);
+    for (const [cx, cy] of SIM.cellsOf(f)) s.grid[idx(s, cx, cy)] = f.id;
+    return ok;
+  };
+  SIM.moveFacility = (s, id, x, y) => {
+    const f = s.facilities[id];
+    if (!f) return { ok: false };
+    if (f.x === x && f.y === y) return { ok: false, msg: '지금 있는 자리예요' };
+    const cost = SIM.moveCost(f);
+    if (s.money < cost) return { ok: false, msg: '자금이 부족해요' };
+    if (!SIM.canMove(s, id, x, y)) return { ok: false, msg: SIM.size(f.type) > 1 ? `${SIM.size(f.type)}×${SIM.size(f.type)}칸 빈자리가 필요해요 (누른 칸이 왼쪽 위)` : '그 자리는 비어 있지 않아요' };
+    expense(s, 'facility', cost);
+    for (const [cx, cy] of SIM.cellsOf(f)) s.grid[idx(s, cx, cy)] = null;
+    f.x = x; f.y = y;
+    for (const [cx, cy] of SIM.cellsOf(f)) s.grid[idx(s, cx, cy)] = f.id;
+    const ev = [];
+    checkNewCombos(s, ev);
+    return { ok: true, msg: `${j(D.FACILITIES[f.type].name, '을를')} 옮겼어요 (${won(cost)})`, events: ev };
   };
 
   SIM.demolish = (s, id) => {
