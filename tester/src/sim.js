@@ -45,6 +45,7 @@
   }
   function expense(s, key, amt) {
     if (key === 'medical' && has(s, 'lab')) amt *= 0.8;   // 연구 협력실: 진료비 -20%
+    if (key === 'medical' && s.siteTrait === 'senior') amt *= 0.8;   // 노령 전문 분점
     amt = Math.round(amt);
     s.money -= amt;
     s.ledger.expense[key] = (s.ledger.expense[key] || 0) + amt;
@@ -77,7 +78,7 @@
       autoReport: false, reportDue: null, level: SIM.levelFor(C.reputation), autoMed: true,
       corporate: null, corporateOffered: false, subsidy: false, quotaLeft: 0,
       jobPosts: {}, volPost: null, applicants: [], hiredNamed: [],
-      album: [], pending: [], yearLog: [], ending: null, yardItems: {},
+      album: [], pending: [], yearLog: [], ending: null, yardItems: {}, siteId: 'main', siteName: '본점', siteTrait: null, sites: {},
       ledger: newLedger(), report: null, prevReport: null,
       quarterFinance: false, fundraisedQ: 0, acctFails: 0, lowFunds: 0,
     };
@@ -130,6 +131,8 @@
     if (s.tutorial === undefined) s.tutorial = null;
     if (!s.yearLog) s.yearLog = [];
     if (!s.yardItems) s.yardItems = {};
+    if (!s.siteId) { s.siteId = 'main'; s.siteName = '본점'; s.siteTrait = null; }
+    if (!s.sites) s.sites = {};
     for (const a of s.animals) if (!a.story) a.story = ['예전부터 보호소에서 지내 왔다'];
     if (!Object.values(s.facilities).some((f) => f.type === 'main')) placeMain(s);
     if (s.ending === undefined) s.ending = null;
@@ -195,6 +198,91 @@
     const spot = tries.find(([x, y]) => SIM.canPlace(s, 'main', x, y));
     if (spot) placeFacility(s, 'main', spot[0], spot[1]);
   }
+/* ---------- 분점: 맞바꾸기 (v0.9.1) ---------- */
+  // 화면에 뜬 곳(본점 또는 분점)의 땅·시설·아이·직원은 s 바로 아래에 두고, 나머지 곳은 s.sites에 보관한다
+  const SITE_KEYS = ['facilities', 'grid', 'gridW', 'gridH', 'land', 'animals', 'staff', 'yardItems', 'siteId', 'siteName', 'siteTrait'];
+  function swapTo(s, id) {
+    if (s.siteId === id || !s.sites || !s.sites[id]) return;
+    const cur = {};
+    for (const k of SITE_KEYS) cur[k] = s[k];
+    s.sites[s.siteId] = cur;
+    Object.assign(s, s.sites[id]);
+    s.sites[id] = null;
+  }
+  SIM.siteIds = (s) => ['main', ...Object.keys(s.sites || {}).filter((k) => k !== 'main').map(Number).sort()].filter((id, i, a) => a.indexOf(id) === i)
+    .filter((id) => id === s.siteId || (s.sites && s.sites[id]) || id === 'main');
+  SIM.withSite = (s, id, fn) => {
+    if (s.siteId === id) return fn();
+    const prev = s.siteId;
+    swapTo(s, id);
+    try { return fn(); } finally { swapTo(s, prev); }
+  };
+  SIM.forEachSite = (s, fn) => {
+    for (const id of SIM.siteIds(s)) SIM.withSite(s, id, () => {
+      if (id === 'main') return fn(true);
+      // 분점: 입소는 모두 받기, 종은 특성대로
+      const keep = [s.intakePolicy, s.speciesPolicy];
+      const tr = D.BRANCH_TRAITS[s.siteTrait] || {};
+      s.intakePolicy = 'all';
+      s.speciesPolicy = tr.species || 'both';
+      try { fn(false); } finally { [s.intakePolicy, s.speciesPolicy] = keep; }
+    });
+  };
+  SIM.viewSite = (s, id) => { swapTo(s, id); return { ok: true }; };
+  SIM.siteLabel = (s, id) => (id === 'main' ? '본점' : `${id}호점`);
+  // 분점에서 생긴 알림에는 분점 이름을 붙이고, 고를 일(수술 등)은 점장이 대신 정한다
+  function branchPost(s, ev, mark, pend) {
+    const tag = `[${s.siteName}] `;
+    for (let i = mark; i < ev.length; i++) {
+      const e = ev[i];
+      if (e.type === 'toast' || e.type === 'adopt') e.text = tag + e.text;
+      else if (e.type === 'popup') e.title = tag + e.title;
+      else if (e.type === 'visit' || e.type === 'built') { ev.splice(i, 1); i--; }
+    }
+    const added = s.pending.splice(pend);
+    for (const p of added) {
+      if (p.kind === 'injury') {
+        const a = s.animals.find((x) => x.id === p.id);
+        s.pending.unshift(p);
+        SIM.resolve(s, a && s.money > a.surgeryCost * 2 ? 'pay' : 'transfer');
+      }
+    }
+  }
+  SIM.branchInfo = (s, no) => D.BRANCHES.find((b) => b.no === no);
+  SIM.openBranch = (s, no, trait) => {
+    const B = SIM.branchInfo(s, no), T = D.BRANCH_TRAITS[trait];
+    if (!B || !T) return { ok: false };
+    if (s.sites && (s.sites[no] || s.siteId === no)) return { ok: false, msg: '이미 연 분점이에요' };
+    if (no === 3 && !(s.sites && (s.sites[2] || s.siteId === 2))) return { ok: false, msg: '2호점을 먼저 열어야 해요' };
+    if (s.level < B.lv) return { ok: false, msg: `보호소 등급 Lv${B.lv}부터 열 수 있어요` };
+    if (s.money < B.cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'facility', B.cost);
+    const L = D.LAND[0];
+    s.sites = s.sites || {};
+    s.sites[no] = { facilities: {}, grid: Array(L.cols * L.rows).fill(null), gridW: L.cols, gridH: L.rows, land: 0, animals: [], staff: [], yardItems: {},
+      siteId: no, siteName: `${no}호점`, siteTrait: trait };
+    SIM.withSite(s, no, () => {
+      for (const [type, x, y] of T.layout) if (SIM.canPlace(s, type, x, y)) placeFacility(s, type, x, y);
+      // 점장 한 명과 돌봄 담당 두 명이 함께 시작한다
+      s.staff.push({ id: s.nextId++, name: personName(s), role: 'manager', title: '점장', level: 2, exp: 0, stats: { care: 4, heal: 1, train: 2, groom: 2, acct: 5, sns: 2 } });
+      for (let i = 0; i < 2; i++) s.staff.push({ id: s.nextId++, name: personName(s), role: 'carer', level: 1, exp: 0, stats: { care: 5, heal: 1, train: 1, groom: 1, acct: 0, sns: 0 } });
+    });
+    pushFeed(s, `${s.shelterName} ${no}호점(${T.name})이 문을 열었다`, 'good');
+    return { ok: true, msg: `${no}호점(${T.name})을 열었어요. 위쪽에서 지점을 바꿔 볼 수 있어요`, events: [{ type: 'popup', title: `${no}호점 개점!`, body: `${T.name}\n${T.desc}\n점장과 돌봄 담당 두 명이 함께해요.` }] };
+  };
+  // 분점의 달 비용(급여·유지비). 본점 정산 때 함께 낸다
+  function branchMonthlyCost(s) {
+    let cost = 0;
+    for (const id of SIM.siteIds(s)) {
+      if (id === s.siteId) continue;
+      const site = s.sites[id];
+      if (!site) continue;
+      cost += site.staff.reduce((t, st) => t + SIM.salary(st), 0);
+      cost += Object.values(site.facilities).filter((f) => !f.buildLeft).reduce((t, f) => t + D.FACILITIES[f.type].upkeep * (D.UPKEEP_BY_LV[s.level] || 1), 0);
+    }
+    return cost;
+  }
+
   SIM.mainStage = (s) => D.MAIN_STAGE_LV.filter((lv) => s.level >= lv).length;   // 1~3
 
   /* ---------- 특수 사업·유튜브·굿즈 개발 (v0.8) ---------- */
@@ -409,7 +497,7 @@
   SIM.lineCap = (s, f, groups) => {
     const list = (groups || SIM.groups(s))[f.type];
     const g = list && list.find((k) => k.ids.includes(f.id));
-    return D.FACILITIES[f.type].cap + (g && g.ids[0] === f.id ? g.len - 1 : 0) + ((f.type === 'kennel' || f.type === 'bigkennel') && SIM.facLevel(f) >= 3 ? 1 : 0);
+    return D.FACILITIES[f.type].cap + (g && g.ids[0] === f.id ? g.len - 1 : 0) + ((f.type === 'kennel' || f.type === 'bigkennel') && SIM.facLevel(f) >= 3 ? 1 : 0) + (f.type === 'cattery' && s.siteTrait === 'cat' ? 1 : 0);
   };
   SIM.kennelCap = SIM.lineCap;
   // 개의 몸집: 소형견은 소형견사, 중·대형견은 대형견사에서 지낸다
@@ -637,7 +725,24 @@
   function admit(s, a, events) {
     const b = D.BREEDS[a.breed];
     const home = freeHome(s, b.species, a.breed);
-    if (!home) { sendAway(s, a, events, 'full'); return null; }
+    if (!home) {
+      // 자리가 없으면 자리가 있는 다른 지점(본점·분점)으로 보낸다. 평판 감점 없음
+      const here = s.siteId;
+      for (const id of SIM.siteIds(s)) {
+        if (id === here) continue;
+        const moved = SIM.withSite(s, id, () => {
+          if (D.BRANCH_TRAITS[s.siteTrait] && D.BRANCH_TRAITS[s.siteTrait].species && D.BRANCH_TRAITS[s.siteTrait].species !== b.species) return false;
+          const h = freeHome(s, b.species, a.breed);
+          if (!h) return false;
+          a.home = h; s.animals.push(a); s.stats.rescued++; s.ledger.rescued++;
+          if (!a.story) story(s, a, '자리가 넉넉한 지점으로 와서 지내게 됐다');
+          return true;
+        });
+        if (moved) { if (events) events.push({ type: 'toast', text: `${j(a.name, '은는')} 자리가 있는 ${SIM.siteLabel(s, id)}으로 갔어요` }); return a; }
+      }
+      sendAway(s, a, events, 'full');
+      return null;
+    }
     a.home = home;
     s.animals.push(a);
     s.stats.rescued++; s.ledger.rescued++;
@@ -661,6 +766,7 @@
   function intakeAnimal(s, breedKey, quiet, events, opts = {}) {
     // 고양이 출산기(봄~여름): 길에서 오는 고양이 중 아기 고양이 비중이 커진다
     if (!quiet && !opts.returned && !opts.ageDays && D.BREEDS[breedKey].species === 'cat' && rand(s) < D.SEASONS[SIM.season(s.day)].kitten) opts = { ...opts, ageDays: randInt(s, 40, 100) };
+    if (!quiet && !opts.ageDays && s.siteTrait === 'senior' && rand(s) < D.BRANCH_TRAITS.senior.senior) opts = { ...opts, ageDays: randInt(s, 96, 150) * 30 };   // 노령 전문 분점
     const a = makeAnimal(s, breedKey, quiet, opts);
     if (opts.how) a.how = opts.how;
     if (quiet || opts.returned || opts.forced) return admit(s, a, events);
@@ -863,7 +969,7 @@
     if (fee.fee) income(s, 'fee', fee.fee);
     const gift = Math.round(randInt(s, 10, 30) * D.ADOPT_GIFT_MULT) * 10_000;
     income(s, 'gift', gift);
-    s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep : 0);
+    s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep * (s.siteTrait === 'senior' ? 2 : 1) : 0);
     const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1) * (opts.bonded ? D.VISIT.bondReturn : 1) * (upAny(s, 'adoption', 2) ? 0.7 : 1);
     s.album.unshift({ id: a.id, name: a.name, breed: a.breed, coat: a.coat, day: s.day, ageDays: a.ageDays, news: [], next: 0,
       returnDay: willReturn ? s.day + randInt(s, 30, 90) : null, closed: a.closed });
@@ -943,6 +1049,7 @@
     if (activeCelebs(s).length) p *= 1.3;
     for (const b of s.buffs) if (b.adopt && b.until > s.day && (!b.species || b.species === a.species)) p *= b.adopt;
     if (s.trend && a.breed === s.trend.breed && (phase === 'viral' || phase === 'boom')) p *= 1.4;
+    p *= (D.BRANCH_TRAITS[s.siteTrait] || {}).adopt || 1;   // 입양 카페형 분점
     return Math.min(0.95, p);
   };
 
@@ -957,9 +1064,23 @@
     return { inc, out, net: sum(inc) - sum(out) };
   };
 
+  // 하루 진행(v0.9.1 분점): 화면에 떠 있는 곳과 상관없이 본점·분점을 차례로 맞바꿔 각자 하루를 보내고,
+  // 보호소 전체 일(사업·계절·후원·보고서·달 정산)은 본점 기준으로 한 번만 한다
   SIM.tick = (s) => {
     const ev = [];
     s.day++;
+    SIM.forEachSite(s, (isMain) => {
+      const mark = ev.length, pend = s.pending.length;
+      siteBuild(s, ev);
+      if (isMain) globalA(s, ev);
+      siteCore(s, ev, isMain);
+      staffExp(s, ev);
+      if (!isMain) branchPost(s, ev, mark, pend);
+    });
+    SIM.withSite(s, 'main', () => globalB(s, ev));
+    return ev;
+  };
+  function siteBuild(s, ev) {
     for (const f of Object.values(s.facilities)) {
       if (!f.buildLeft) continue;
       f.buildLeft--;
@@ -969,6 +1090,8 @@
         checkNewCombos(s, ev);
       }
     }
+  }
+  function globalA(s, ev) {
     projectTick(s, ev);
     if (has(s, 'edu')) s.awareness = clamp(s.awareness + 0.03, 0, 100);   // 교육관
     if (has(s, 'hall') && s.day % DPM === 0) s.reputation += 5;           // 명예의 전당
@@ -983,6 +1106,8 @@
     // 기념일(세계 고양이의 날 등)
     const today = SIM.dateOf(s.day);
     for (const d of D.DAYS) if (today.month === d.month && today.dayOfMonth === d.day && !s.pending.some((p) => p.kind === 'memorial')) s.pending.push({ kind: 'memorial', id: d.id });
+  }
+  function siteCore(s, ev, isMain) {
     const cs = SIM.combos(s);
     const phase = trendPhase(s);
 
@@ -1121,9 +1246,29 @@
       const fam = a.reservedBy;
       if (adoptOne(s, a, ev, { bonded: true, family: fam })) ev.push({ type: 'popup', title: '약속한 가족이 왔어요', body: `${j(fam, '이가')} 약속대로 ${j(a.name, '을를')} 데리러 왔어요.\n교감하고 간 입양은 파양이 적어요.` });
     }
-    visitorTick(s, ev);
+    if (isMain) visitorTick(s, ev);   // 방문자는 본점만
 
-    // 입양 간 아이 소식과 '다시 돌아온 아이'
+    if (isMain) albumTick(s, ev);   // 입양 간 아이 소식은 보호소 전체에서 한 번
+    // 길에서 오는 아이들 + 지자체 위탁 의무 수용
+    let pIn = 0.1 + (100 - s.awareness) / 100 * 0.18;
+    if (phase === 'wave') pIn += 0.2 * s.trend.intensity;
+    pIn *= D.INTAKE_RATE * SIM.speciesShare(s) * D.SEASONS[SIM.season(s.day)].intake;   // 여름 휴가철 유기 증가
+    for (const b of s.buffs) if (b.intake && b.until > s.day) pIn *= b.intake;   // 바깥 사건으로 몰려드는 아이들
+    if (SIM.projectActive(s, 'rescue')) pIn *= 2.5;
+    // 이웃 도시 연계 구조: 인식이 높아 길에서 오는 아이가 줄어도, 이름난 보호소에는 다른 도시의 부탁이 온다
+    if (s.level >= D.REGION_INTAKE.fromLv) pIn += D.REGION_INTAKE.rate * (s.awareness / 100) * D.INTAKE_RATE * SIM.speciesShare(s);
+    // 튜토리얼 중(첫 식구가 오기 전)에는 길에서 오는 아이가 없다
+    const quiet = isMain && s.tutorial && s.tutorial.step < 5;
+    if (!quiet && rand(s) < Math.min(0.85, pIn)) intakeAnimal(s, chooseBreed(s), false, ev);
+    if (!isMain) pIn *= (D.BRANCH_TRAITS[s.siteTrait] || {}).intake || 1;   // 분점 특성
+    if (isMain && s.subsidy && s.quotaLeft > 0 && rand(s) < 0.15) { s.quotaLeft--; intakeAnimal(s, chooseBreed(s), false, ev, { forced: true, how: 'forced' }); }
+
+    if (isMain && s.trend && s.day === s.trend.waveStart) {
+      const bn = D.BREEDS[s.trend.breed].name;
+      ev.push({ type: 'popup', title: '반짝 인기가 지나간 자리', body: `길에서 발견되는 ${j(bn, '이가')} 늘고 있어요.\n한동안 ${j(bn, '이가')} 많이 들어올 거예요.` });
+    }
+  }
+  function albumTick(s, ev) {
     for (const e of s.album) {
       if (e.returnDay && s.day >= e.returnDay && !e.back) {
         e.back = true;
@@ -1143,29 +1288,8 @@
       }
     }
 
-    if (s.trend && s.day === s.trend.waveStart) {
-      const bn = D.BREEDS[s.trend.breed].name;
-      ev.push({ type: 'popup', title: '반짝 인기가 지나간 자리', body: `길에서 발견되는 ${j(bn, '이가')} 늘고 있어요.\n한동안 ${j(bn, '이가')} 많이 들어올 거예요.` });
-    }
-
-    // 길에서 오는 아이들 + 지자체 위탁 의무 수용
-    let pIn = 0.1 + (100 - s.awareness) / 100 * 0.18;
-    if (phase === 'wave') pIn += 0.2 * s.trend.intensity;
-    pIn *= D.INTAKE_RATE * SIM.speciesShare(s) * D.SEASONS[SIM.season(s.day)].intake;   // 여름 휴가철 유기 증가
-    for (const b of s.buffs) if (b.intake && b.until > s.day) pIn *= b.intake;   // 바깥 사건으로 몰려드는 아이들
-    if (SIM.projectActive(s, 'rescue')) pIn *= 2.5;
-    // 이웃 도시 연계 구조: 인식이 높아 길에서 오는 아이가 줄어도, 이름난 보호소에는 다른 도시의 부탁이 온다
-    if (s.level >= D.REGION_INTAKE.fromLv) pIn += D.REGION_INTAKE.rate * (s.awareness / 100) * D.INTAKE_RATE * SIM.speciesShare(s);
-    // 튜토리얼 중(첫 식구가 오기 전)에는 길에서 오는 아이가 없다
-    const quiet = s.tutorial && s.tutorial.step < 5;
-    if (!quiet && rand(s) < Math.min(0.85, pIn)) intakeAnimal(s, chooseBreed(s), false, ev);
-    if (s.subsidy && s.quotaLeft > 0 && rand(s) < 0.15) { s.quotaLeft--; intakeAnimal(s, chooseBreed(s), false, ev, { forced: true, how: 'forced' }); }
-
-    donations(s);
-    volunteerApplicants(s, ev);
-
-    if (activeCampaign(s, 'school')) s.awareness = clamp(s.awareness + 0.12, 0, 100);
-
+  }
+  function staffExp(s, ev) {
     for (const st of s.staff) {
       st.exp++;
       if (st.exp >= 40 * st.level && st.level < 5) {
@@ -1175,6 +1299,14 @@
         ev.push({ type: 'toast', text: `${st.name} 레벨 ${st.level}! ${D.STATS[main]} +1` });
       }
     }
+
+  }
+  function globalB(s, ev) {
+    const phase = trendPhase(s);
+    donations(s);
+    volunteerApplicants(s, ev);
+
+    if (activeCampaign(s, 'school')) s.awareness = clamp(s.awareness + 0.12, 0, 100);
 
     if (s.day % 5 === 0) {
       const bn = s.trend ? D.BREEDS[s.trend.breed].name : '';
@@ -1190,7 +1322,7 @@
     s.reputation = Math.round(Math.max(0, s.reputation) * 10) / 10;   // 평판 상한 없음(v0.9)
     checkLevel(s, ev);
     return ev;
-  };
+  }
 
   /* ---------- 봉사자 모집 ---------- */
   function volunteerApplicants(s, ev) {
@@ -1231,6 +1363,8 @@
     expense(s, 'salary', salary);
     let upkeep = 0;
     for (const f of facList(s)) upkeep += D.FACILITIES[f.type].upkeep * (D.UPKEEP_BY_LV[s.level] || 1);   // 등급이 오르면 운영비도 오른다
+    const branchCost = branchMonthlyCost(s);
+    if (branchCost) expense(s, 'branch', branchCost);   // 분점 급여·유지비
     expense(s, 'upkeep', upkeep);
 
     // 대출 상환: 원금 1/12 + 남은 원금의 1%

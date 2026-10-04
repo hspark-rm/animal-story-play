@@ -31,7 +31,15 @@
   UI.hud = () => {
     if (!state) return;
     $('date').textContent = SIM.dateLabel(state.day);
-    $('shelter-name').textContent = state.shelterName || '';
+    const ids = SIM.siteIds(state);
+    $('shelter-name').textContent = (state.shelterName || '') + (ids.length > 1 ? ` · ${SIM.siteLabel(state, state.siteId)}` : '');
+    // 분점이 있으면 지점 바꾸기 단추를 보인다
+    const st = $('site-tabs'), key = ids.join(',') + '|' + state.siteId;
+    if (st.dataset.key !== key) {
+      st.dataset.key = key;
+      st.hidden = ids.length < 2;
+      st.innerHTML = ids.map((id) => `<button type="button" data-site="${id}" aria-pressed="${id === state.siteId}">${SIM.siteLabel(state, id)}${id !== 'main' ? `<small>${D.BRANCH_TRAITS[(id === state.siteId ? state : state.sites[id]).siteTrait].name}</small>` : ''}</button>`).join('');
+    }
     UI.tutorialTick();
     $('money').textContent = won(state.money);
     $('money').classList.toggle('neg', state.money < 0);
@@ -253,7 +261,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
   /* ---------- 분기 보고서 ---------- */
   const LABELS = {
     donors: '정기후원', gift: '입양 후원', fee: '입양 책임비', fundraise: '긴급 모금', goods: '굿즈 매출', corporate: '기업 후원', subsidy: '지자체 보조금', refund: '철거 환급',
-    salary: '급여', upkeep: '시설 유지', items: '물품 구입', medical: '의료비', goodsCost: '굿즈 원가', interest: '대출 이자', campaign: '캠페인·섭외', facility: '건설', hiring: '채용·교육',
+    salary: '급여', upkeep: '시설 유지', items: '물품 구입', medical: '의료비', goodsCost: '굿즈 원가', interest: '대출 이자', campaign: '캠페인·섭외', facility: '건설', branch: '분점 운영', hiring: '채용·교육',
     loanIn: '대출 받음', loanRepay: '원금 상환',
   };
   function reportHTML(r, prev) {
@@ -524,7 +532,12 @@ ${flags.join(' · ') || '건강한 편이에요'}
       // 시설 세분: 아이들 집 / 운영 / 후반(등급 6 이상)
       const fcat = (k, f) => (f.lv >= 6 ? 'late' : ['kennel', 'bigkennel', 'cattery', 'yard', 'exotic'].includes(k) ? 'home' : 'ops');
       const ft = UI.tab.facs;
-      const rows = tabs('facs', [['home', '아이들 집'], ['ops', '운영'], ['late', '후반 시설']]) + Object.entries(D.FACILITIES).filter(([k, f]) => (k !== 'exotic' || D.EXOTIC.enabled) && !f.decor && !f.fixed && fcat(k, f) === ft).map(([k, f]) => {
+      // 분점 열기(후반 시설 탭 맨 위)
+      const opened = (no) => state.siteId === no || (state.sites && state.sites[no]) || (state.sites && Object.prototype.hasOwnProperty.call(state.sites, no));
+      const branchCard = ft !== 'late' ? '' : D.BRANCHES.map((B) => opened(B.no) ? `<div class="card"><b>${B.no}호점 운영 중</b><span class="note">위쪽 지점 단추로 오갈 수 있어요</span></div>`
+        : `<div class="card"><b>${B.no}호점 열기 · ${won(B.cost)}원</b><span class="note">${state.level < B.lv ? `보호소 등급 Lv${B.lv}부터` : '특성을 골라 열어요. 땅·시설·아이·직원은 따로, 자금·평판·후원자는 함께 써요.'}</span>
+          ${state.level >= B.lv && (B.no === 2 || opened(2)) ? `<div class="btns">${Object.entries(D.BRANCH_TRAITS).map(([k, t]) => btn('branch', `${B.no}:${k}`, t.name, { disabled: state.money < B.cost })).join('')}</div><span class="note">${Object.values(D.BRANCH_TRAITS).map((t) => `${t.name}: ${t.desc}`).join(' / ')}</span>` : ''}</div>`).join('');
+      const rows = branchCard + tabs('facs', [['home', '아이들 집'], ['ops', '운영'], ['late', '후반 시설']]) + Object.entries(D.FACILITIES).filter(([k, f]) => (k !== 'exotic' || D.EXOTIC.enabled) && !f.decor && !f.fixed && fcat(k, f) === ft).map(([k, f]) => {
         const locked = f.lv > state.level;
         return `<div class="row" ${locked ? 'style="opacity:.6"' : ''}>${icon('tile', k)}
           <div class="main"><span class="name">${f.name}</span><span class="sub">${won(f.cost)}원 · 공사 ${f.days}일 · 월 ${won(f.upkeep)}원</span><span class="sub">${f.desc}</span></div>
@@ -787,6 +800,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
     project: (a) => SIM.startProject(state, a),
     video: (a) => SIM.shootVideo(state, a),
     goods: () => SIM.developGoods(state),
+    branch: (a) => { const [no, t] = a.split(':'); const r = SIM.openBranch(state, Number(no), t); if (r.ok) hooks.onChange(); return r; },
     removeItem: (a) => { const r = SIM.removeYardItem(state, a); if (r.ok) { UI.closeSheet(); hooks.onChange(); } return r; },
     postJob: (a) => SIM.postJob(state, a),
     hire: (a) => { const [role, i] = a.split(':'); const r = SIM.hireCandidate(state, role, Number(i)); if (r.ok) UI.toast(`${r.name}님이 합류했어요`); return r; },
@@ -858,6 +872,18 @@ ${flags.join(' · ') || '건강한 편이에요'}
     $('sheet-body').addEventListener('pointerdown', () => { UI.pressing = true; });
     window.addEventListener('pointerup', () => { UI.pressing = false; });
     window.addEventListener('pointercancel', () => { UI.pressing = false; });
+    $('site-tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-site]');
+      if (!b) return;
+      const id = b.dataset.site === 'main' ? 'main' : Number(b.dataset.site);
+      if (id === state.siteId) return;
+      hooks.onBuildMode(null); hooks.onMoveMode(null);
+      UI.closeSheet();
+      SIM.viewSite(state, id);
+      UI.save(state);
+      hooks.onRelayout();
+      UI.toast(`${SIM.siteLabel(state, id)}으로 왔어요`);
+    });
     $('build-cancel').addEventListener('click', () => { hooks.onBuildMode(null); hooks.onMoveMode(null); });
     $('rotate-btn').addEventListener('click', () => hooks.onRotate && hooks.onRotate());
     $('coach-next').addEventListener('click', coachNext);

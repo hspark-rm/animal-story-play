@@ -103,6 +103,9 @@
         this.add.textHiRes = true;
       }
       setDims(state);
+      // 장면을 다시 시작하면(지점 바꾸기·시점 돌리기) 예전 오브젝트는 모두 사라진다. 남은 참조와 캐시를 비운다
+      this.yardSig = null; this.itemSig = null; this.yardObjs = []; this.itemObjs = []; this.fenceObjs = [];
+      this.padLayer = null; this.sorted = null; this.visitors = []; this.fx = null; this.winterVeil = null; this.snowmen = []; this.walkGrid = null;
       SPR.build(this, D);
       this.cameras.main.setBackgroundColor(SPR.has('bg-canopy') ? '#5f9e45' : '#a8dcef');
       // 게임개발스토리식 배경: 지도 바깥을 숲 무늬 한 장으로 끝없이 채운다(빈 하늘색이 보이지 않게)
@@ -321,7 +324,7 @@
         sign.box = { x0: gx + 1.5, y0: ROWS + 0.3, x1: gx + 1.9, y1: ROWS + 0.6 };
         this.fenceObjs.push(sign);
         // 간판 글자는 보호소 이름. 그림 위 판자 가운데에 겹친다
-        this.signText = this.add.text(p.x, p.y - 36, state.shelterName, { fontFamily: 'Do Hyeon, sans-serif', fontSize: '11px', color: '#fff6e0', stroke: '#5a3a1e', strokeThickness: 3 }).setOrigin(0.5).setDepth(5000);
+        this.signText = this.add.text(p.x, p.y - 36, state.siteId === 'main' ? state.shelterName : `${state.shelterName} ${state.siteName}`, { fontFamily: 'Do Hyeon, sans-serif', fontSize: '11px', color: '#fff6e0', stroke: '#5a3a1e', strokeThickness: 3 }).setOrigin(0.5).setDepth(5000);
       }
     }
 

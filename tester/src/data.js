@@ -185,6 +185,21 @@
     { id: 'photobook', name: '입양 사진집', cost: 5_000_000, days: 45, base: 1_600_000 },
   ];
 
+  // 분점(v0.9.1): Lv6에 2호점, Lv8에 3호점. 분점마다 땅·시설·아이·직원이 따로 있고 자금·평판·인식·후원자는 함께 쓴다.
+  // 분점의 입소는 늘 '모두 받기', 다친 아이는 점장이 알아서(자금이 넉넉하면 수술, 아니면 이송) 처리한다
+  DATA.BRANCHES = [
+    { no: 2, lv: 6, cost: 50_000_000 },
+    { no: 3, lv: 8, cost: 100_000_000 },
+  ];
+  DATA.BRANCH_TRAITS = {
+    cat:    { name: '고양이 전문', desc: '고양이만 받아요. 묘사 정원 +1.', species: 'cat', intake: 0.9,
+              layout: [['cattery', 1, 1], ['cattery', 2, 1], ['cattery', 3, 1], ['storage', 5, 1]] },
+    senior: { name: '노령·장애 아이 전문', desc: '나이 든 아이가 많이 와요. 노령 입양 평판 2배, 진료비 -20%.', intake: 0.8, senior: 0.6,
+              layout: [['bigkennel', 1, 1], ['bigkennel', 2, 1], ['kennel', 1, 3], ['kennel', 2, 3], ['cattery', 4, 3]] },
+    cafe:   { name: '입양 카페형', desc: '방문이 많아 입양 확률 2배. 대신 들어오는 아이는 적어요(×0.6).', intake: 0.6, adopt: 2,
+              layout: [['adoption', 3, 1], ['kennel', 1, 3], ['bigkennel', 2, 3], ['cattery', 4, 3]] },
+  };
+
   // 산책장 놀이기구(v0.7): 완공된 산책장 칸 위에만 놓는다(칸당 하나). 개는 그 위를 그대로 지나다닌다
   DATA.YARD_ITEMS = {
     aframe: { name: '어질리티 A프레임', cost: 250_000, mood: 1, h: 34, sprite: 'deco-aframe', train: 0.10, desc: '산책장 훈련 효과 +10%' },
