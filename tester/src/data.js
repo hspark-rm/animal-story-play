@@ -92,10 +92,10 @@
   // lv = 지을 수 있는 등급, days = 공사 기간(일). 공사 중에는 작동하지 않고 유지비도 들지 않는다
   DATA.FACILITIES = {
     // size = 차지하는 칸(정사각형 한 변). 견사·진료실은 2×2 큰 건물
-    kennel:   { name: '견사',       lv: 1, days: 6,  size: 2, cost: 1_000_000, upkeep: 30_000, cap: 5, species: 'dog', desc: '2×2칸. 개 5마리가 지냅니다.' },
+    kennel:   { name: '견사',       lv: 1, days: 4,  cost: 500_000,   upkeep: 20_000, cap: 2, species: 'dog', desc: '개 2마리가 지냅니다. 일렬로 붙여 지으면 최대 3칸짜리 긴 견사가 되고, 붙인 칸마다 1마리를 더 받아요.' },
     cattery:  { name: '묘사',       lv: 1, days: 3,  cost: 400_000,   upkeep: 15_000, cap: 3, species: 'cat', desc: '고양이 3마리가 지냅니다.' },
     storage:  { name: '물품 창고',   lv: 1, days: 3,  cost: 500_000,   upkeep: 10_000, desc: '물품이 덜 상해 소비량이 15% 줄어듭니다.' },
-    yard:     { name: '산책장',     lv: 2, days: 5,  cost: 600_000,   upkeep: 15_000, desc: '개의 사회성이 오릅니다.' },
+    yard:     { name: '산책장',     lv: 2, days: 5,  cost: 600_000,   upkeep: 15_000, desc: '개의 사회성이 오릅니다. 붙여 지으면 최대 8칸까지 한 마당이 되고, 넓을수록 효과가 커져요.' },
     adoption: { name: '입양 상담실', lv: 2, days: 7,  cost: 800_000,   upkeep: 30_000, desc: '입양 확률이 오릅니다.' },
     clinic:   { name: '진료실',     lv: 3, days: 12, size: 2, cost: 1_800_000, upkeep: 60_000, desc: '2×2칸. 수의사가 있으면 건강 회복이 빨라지고 진료를 안에서 해요.' },
     shop:     { name: '굿즈샵',     lv: 4, days: 8,  cost: 1_500_000, upkeep: 40_000, desc: '달마다 굿즈 매출이 납니다. 평판과 SNS 능력치가 클수록 잘 팔립니다.' },
@@ -212,8 +212,19 @@
       health: '허리가 아주 길어 디스크가 잘 생겨요. 계단과 높은 곳을 피해 주세요.' },
     husky:        { name: '시베리안 허스키', species: 'dog', base: 2, energy: 1.9, adopt: 0.8, life: [12, 15], colors: ['#8a8a92', '#ffffff', '#2a2a30'],
       health: '운동량이 아주 많고 더위에 약해요. 탈출을 잘해서 울타리를 꼼꼼히 살펴 주세요.' },
-    korshort:     { name: '코숏',           species: 'cat', base: 578, energy: 1.0, adopt: 0.9, life: [12, 18], colors: ['#9a9aa2', '#5e5e68', '#2a2a33'],
+    // 한국 고양이(코숏)는 공고 578건을 털색별로 나눴다. 털색 비율은 공식 통계가 없어 추정값이다
+    korshort:     { name: '코숏 고등어',     species: 'cat', base: 170, energy: 1.0, adopt: 0.9, life: [12, 18], colors: ['#9a9aa2', '#5e5e68', '#2a2a33'],
       health: '대체로 튼튼해요. 길에서 온 아이는 구내염과 피부병을 살펴 주세요.' },
+    korcheese:    { name: '코숏 치즈',       species: 'cat', base: 130, energy: 1.0, adopt: 1.0, life: [12, 18], colors: ['#f0a050', '#ffe0b0', '#3a2a1c'],
+      health: '대체로 튼튼해요. 살이 잘 찌는 편이라 먹는 양을 살펴 주세요.' },
+    kortuxedo:    { name: '코숏 턱시도',     species: 'cat', base: 90, energy: 1.1, adopt: 0.9, life: [12, 18], colors: ['#2a2a30', '#ffffff', '#1a1a1a'],
+      health: '대체로 튼튼해요. 길에서 온 아이는 구내염과 피부병을 살펴 주세요.' },
+    korcalico:    { name: '코숏 삼색이',     species: 'cat', base: 70, energy: 1.0, adopt: 1.0, life: [12, 18], colors: ['#ffffff', '#f0a050', '#2a2a30'], femaleOnly: true,
+      health: '삼색이는 유전적으로 거의 모두 암컷이에요. 중성화를 꼭 챙겨 주세요.' },
+    korblack:     { name: '코숏 올블랙',     species: 'cat', base: 60, energy: 1.0, adopt: 0.8, life: [12, 18], colors: ['#1e1e24', '#34343c', '#f2d24a'],
+      health: '대체로 튼튼해요. 검은 고양이는 입양이 늦는 편이라 사진을 밝게 찍어 주세요.' },
+    korcow:       { name: '코숏 젖소',       species: 'cat', base: 58, energy: 1.0, adopt: 0.9, life: [12, 18], colors: ['#ffffff', '#2a2a30', '#1a1a1a'],
+      health: '대체로 튼튼해요. 흰 털 부분은 햇볕에 화상을 입기 쉬워요.' },
     russianblue:  { name: '러시안블루',     species: 'cat', base: 4, energy: 1.0, adopt: 1.2, life: [15, 20], colors: ['#8a96a8', '#6a7688', '#2a2a33'],
       health: '예민하고 낯을 가려요. 살이 잘 쪄서 먹는 양을 살펴 주세요.' },
     persian:      { name: '페르시안',       species: 'cat', base: 2, energy: 0.7, adopt: 1.1, life: [12, 17], colors: ['#ffffff', '#f2ece4', '#2a2a33'],
@@ -224,6 +235,16 @@
       health: '튼튼한 편이지만 비만과 비대성 심근증을 살펴 주세요.' },
     ragdoll:      { name: '랙돌',           species: 'cat', base: 2, energy: 0.8, adopt: 1.2, life: [12, 17], colors: ['#f2e6d0', '#8a6a4a', '#2a2a33'],
       health: '순하고 몸집이 커요. 비대성 심근증과 요로 질환을 살펴 주세요.' },
+    scottishfold: { name: '스코티시 폴드',   species: 'cat', base: 6, energy: 0.8, adopt: 1.3, life: [11, 15], colors: ['#c8c0b0', '#e8e0d0', '#2a2a33'],
+      health: '접힌 귀는 연골 이상 때문이라 관절 통증(골연골 이형성증)이 흔해요. 걸음걸이를 살펴 주세요.' },
+    british:      { name: '브리티시 숏헤어', species: 'cat', base: 5, energy: 0.8, adopt: 1.2, life: [12, 17], colors: ['#8a96a8', '#a8b2c0', '#2a2a33'],
+      health: '살이 잘 찌고 비대성 심근증을 살펴야 해요.' },
+    siamese:      { name: '샴',             species: 'cat', base: 4, energy: 1.3, adopt: 1.1, life: [12, 18], colors: ['#f2e6d0', '#5a3e2b', '#2a2a33'],
+      health: '말이 많고 사람을 좋아해요. 호흡기와 치아를 살펴 주세요.' },
+    norwegian:    { name: '노르웨이 숲',     species: 'cat', base: 3, energy: 1.1, adopt: 1.1, life: [12, 16], colors: ['#9a7a5a', '#d8c0a0', '#2a1a12'],
+      health: '털이 길고 두꺼워 엉키지 않게 빗어 주세요. 비대성 심근증도 살펴요.' },
+    mainecoon:    { name: '메인쿤',         species: 'cat', base: 3, energy: 1.0, adopt: 1.1, life: [12, 15], colors: ['#8a6a4a', '#c8a880', '#2a1a12'],
+      health: '몸집이 아주 커요. 고관절 이형성증과 심장 질환을 살펴 주세요.' },
     munchkin:     { name: '먼치킨',         species: 'cat', base: 1, energy: 1.0, adopt: 1.3, life: [12, 15], colors: ['#f0b060', '#fff0d8', '#3a2a1c'],
       health: '다리가 짧아 관절과 척추에 부담이 갈 수 있어요. 높은 곳에서 뛰어내리지 않게 해 주세요.' },
     // 특수동물: 길에서 오지 않고 이벤트로만 들어온다(base 0). 입양 대신 전문 보호시설로 보낸다
@@ -233,7 +254,7 @@
       health: '무리 생활을 해서 혼자 두면 스트레스를 받아요. 따뜻한 굴과 모래가 필요해요.' },
   };
   // SNS 유행 후보: 미디어에서 자주 유행하는 소형·인기 품종
-  DATA.TREND_BREEDS = ['corgi', 'bichon', 'poodle', 'maltipoo', 'pomeranian', 'shiba', 'frenchie', 'samoyed', 'munchkin', 'ragdoll'];
+  DATA.TREND_BREEDS = ['corgi', 'bichon', 'poodle', 'maltipoo', 'pomeranian', 'shiba', 'frenchie', 'samoyed', 'munchkin', 'ragdoll', 'scottishfold', 'british'];
   // enabled: false = 보류 중(2026-10-04 사용자 결정). 켜면 이벤트와 특수동물 사육장이 나타난다
   DATA.EXOTIC = {
     enabled: false,
@@ -251,6 +272,10 @@
       { key: 'adult',  w: 5,   months: [12, 84],  adopt: 1.0 },
       { key: 'senior', w: 2.5, months: [96, 156], adopt: 0.6 },
     ],
+    // 나이별 입양 배율(현실 반영, 2026-10-04): 어릴수록 잘 가고 나이 들수록 급격히 어렵다.
+    // [이 나이(년) 미만이면, 배율]. 노령 입양은 드문 만큼 평판을 더 얻는다(seniorRep)
+    adoptCurve: [[0.5, 2.2], [1, 1.7], [3, 1.15], [7, 0.85], [10, 0.45], [99, 0.25]],
+    seniorRep: 4,
     names: {
       dog:    { baby: '강아지',     adult: '성견', senior: '노령견' },
       cat:    { baby: '아기 고양이', adult: '성묘', senior: '노령묘' },
@@ -258,7 +283,7 @@
     },
   };
 
-  // 의료: 입양하려면 예방접종이 필수, 생후 6개월 이상이면 중성화도 필수.
+  // 의료: 입양하려면 예방접종이 필수. 중성화는 선택(안 하면 파양 위험 1.5배).
   // 진료실과 수의사가 있으면 보호소 안에서 처리해 비용이 크게 준다
   DATA.MEDICAL = {
     // 바깥 동물병원 비용(지자체 중성화 지원을 받은 값). 진료실+수의사가 있으면 inHouse 비율만 든다
@@ -353,6 +378,23 @@
     wishlist: { name: '필요 물품 목록 공유',   cost: 100_000,   days: 30, desc: '30일간 후원 물품이 두 배로 자주 와요' },
   };
 
+  // 기념일: 해마다 같은 날 찾아온다. 행사를 열지, SNS에 글만 올릴지 고른다.
+  // species가 있으면 그 종의 입양만 늘고, null이면 모든 아이의 입양이 는다
+  DATA.DAYS = [
+    { id: 'cat', month: 8, day: 8, name: '세계 고양이의 날', species: 'cat',
+      text: '고양이 사진이 타임라인을 가득 채우는 날이에요.\n보호소 고양이들을 소개하기 좋은 때예요.' },
+    { id: 'homeless', month: 8, day: 17, name: '세계 유기동물의 날', species: null,
+      text: '집 없는 동물들을 기억하고, 입양을 생각해 보는 날이에요.\n사람들의 관심이 보호소로 모여요.' },
+    { id: 'dog', month: 8, day: 26, name: '세계 강아지의 날', species: 'dog',
+      text: '산책길마다 강아지 이야기가 오가는 날이에요.\n보호소 강아지들을 소개하기 좋은 때예요.' },
+    { id: 'animal', month: 10, day: 4, name: '세계 동물의 날', species: null,
+      text: '모든 동물의 삶을 생각해 보는 날이에요.\n동네 학교와 가게들이 함께할 곳을 찾고 있어요.' },
+  ];
+  DATA.DAY_EVENT = {
+    party: { cost: 500_000, days: 14, adopt: 1.8, donors: [6, 12], aware: 3, rep: 3 },   // 기념 행사 열기
+    post:  { cost: 0,       days: 7,  adopt: 1.2, donors: [1, 4],  aware: 1, rep: 0 },   // SNS에 글만 올리기
+  };
+
   DATA.LOANS = [
     { amount: 5_000_000,  label: '500만원' },
     { amount: 10_000_000, label: '1,000만원' },
@@ -365,6 +407,24 @@
   // 강한 의지(일반인 경력): 자금 부족 단계가 한 달씩 늦게 오고, 마음을 닫은 아이의 신뢰가 더 빨리 오른다
   DATA.RESOLVE = { delay: 1, closedTrust: 1.25 };
 
+  // 이어 짓기: 견사는 일렬로 최대 3칸, 산책장은 붙어 있으면 최대 8칸까지 한 덩어리가 된다
+  // 털색 변형: 같은 품종 그림에 색을 곱해(Phaser tint) 입힌다. 곱셈이라 원래 그림보다 밝게는 못 만든다.
+  // 그래서 밝은 털 그림이 있는 품종에만 더 짙은 털색을 준다. [이름, 색(null = 원래 그림), 가중치]
+  // 고양이는 코숏 털색 6종을 이미 따로 그려 두었으므로 여기서 다루지 않는다
+  DATA.COATS = {
+    jindo:      [['백구', null, 5], ['황구', 0xe8a868, 4], ['갈색', 0xb08060, 1], ['흑구', 0x6a6060, 1]],
+    labrador:   [['옐로', null, 5], ['초콜릿', 0x9a6a50, 2], ['블랙', 0x585058, 2]],
+    poodle:     [['브라운', null, 4], ['다크 브라운', 0x8a6a5a, 2], ['블랙', 0x5a5058, 1]],
+    pomeranian: [['오렌지', null, 5], ['초코', 0xa07060, 1], ['블랙', 0x605860, 1]],
+    chihuahua:  [['크림', null, 4], ['폰', 0xe0b080, 3], ['초코', 0xa07868, 1]],
+    golden:     [['골드', null, 4], ['다크 골드', 0xd09868, 2]],
+    maltipoo:   [['크림', null, 4], ['애프리콧', 0xf0c090, 3], ['레드', 0xd89068, 1]],
+    frenchie:   [['폰', null, 4], ['브린들', 0x8a7870, 2]],
+    dachshund:  [['레드', null, 4], ['초코', 0x9a7868, 2], ['블랙탄', 0x6a6068, 1]],
+    shiba:      [['적색', null, 6], ['흑색', 0x706068, 1]],
+  };
+
+  DATA.MERGE = { kennel: 3, yard: 8, yardBonus: 0.1 };
   DATA.MOVE_RATE = 0.1;   // 건물 옮기기 비용 = 건설비의 10% (철거 환급은 30%)
 
   DATA.CORPORATE = { minRep: 300, monthly: 1_000_000, months: 12 };
@@ -409,6 +469,34 @@
   };
 
   // 입양 간 아이 소식: [입양 후 개월 수, 문장 후보]
+  // 엔딩: 10년을 운영하면 성과 보고와 앨범 속 아이들의 한마디가 나온다. 그 뒤로는 계속할지 고른다
+  DATA.ENDING = {
+    years: 10,
+    voices: 8,   // 한마디를 전하는 아이 수(앨범에서 고름)
+    titles: [    // 위에서부터 처음 맞는 칭호
+      { min: { adopted: 600, rankMax: 1 }, name: '전설의 보호소', text: '이 동네에서 유기동물 이야기를 하면 모두가 이 보호소 이름을 먼저 꺼내요.' },
+      { min: { adopted: 0, rankMax: 3 },  name: '모두가 아는 보호소', text: '이웃 보호소들이 어려운 일이 생기면 먼저 연락하는 곳이 되었어요.' },
+      { min: { adopted: 200, rankMax: 99 }, name: '동네의 든든한 보호소', text: '산책길 사람들이 간식을 들고 들르는 곳이 되었어요.' },
+      { min: { adopted: 0, rankMax: 99 },  name: '작지만 따뜻한 보호소', text: '크지 않아도, 이곳을 거쳐 간 아이들은 모두 이름을 얻었어요.' },
+    ],
+    lines: {
+      any: [
+        '{shelter}에서 처음 먹은 밥 맛, 아직 기억해요.',
+        '{shelter} 사람들 덕분에 지금은 우리 집 소파가 제 자리예요.',
+        '산책길에 {shelter} 앞을 지나면 꼬리가 저절로 흔들려요.',
+        '"{name}", 지금도 그 이름으로 불려요. 지어 줘서 고마워요.',
+        '처음 목욕시켜 준 손이 따뜻했어요.',
+        '우리 가족은 제가 {shelter}에서 왔다고 자랑해요.',
+        '{owner}님, 그때 안아 줘서 고마워요.',
+      ],
+      cat: ['창가 햇볕 자리는 이제 제 거예요.', '숨숨집에서 나오던 날, 기다려 줘서 고마웠어요.'],
+      dog: ['이제 산책 줄만 보면 현관으로 달려가요.', '새 가족이랑 바다에 가 봤어요. 파도가 신기했어요.'],
+      closed: ['그때는 아무도 믿지 못했어요. 끝까지 기다려 줘서 고마워요.', '처음으로 손에 머리를 기댔던 날, 기억하세요?'],
+      old: ['저 이제 흰 털이 많이 났어요. 그래도 매일 행복해요.', '나이가 들어 느려졌지만, 가족이 제 걸음에 맞춰 걸어 줘요.'],
+      recent: ['새 집에 온 지 얼마 안 됐지만, 벌써 제 방석이 생겼어요.'],
+    },
+  };
+
   DATA.ADOPT_NEWS = [
     [1,  ['새 집 냄새를 다 맡고 나서야 잠들었대요', '첫날 밤엔 현관 앞에서 잤대요', '이름을 부르면 고개를 갸웃한대요']],
     [3,  ['소파 한가운데를 차지했대요', '산책길 친구가 생겼대요', '간식 서랍 위치를 외웠대요']],

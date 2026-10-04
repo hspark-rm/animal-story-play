@@ -75,7 +75,7 @@
       autoReport: false, reportDue: null, level: SIM.levelFor(C.reputation), autoMed: true,
       corporate: null, corporateOffered: false, subsidy: false, quotaLeft: 0,
       jobPosts: {}, volPost: null, applicants: [], hiredNamed: [],
-      album: [], pending: [],
+      album: [], pending: [], yearLog: [], ending: null,
       ledger: newLedger(), report: null, prevReport: null,
       quarterFinance: false, fundraisedQ: 0, acctFails: 0, lowFunds: 0,
     };
@@ -116,11 +116,16 @@
     if (s.reportDue === undefined) s.reportDue = null;
     if (s.autoMed == null) s.autoMed = true;
     if (s.gridW == null) { s.gridW = D.GRID.cols; s.gridH = D.GRID.rows; s.land = 0; }
+    s.grid = Array(s.gridW * s.gridH).fill(null);
+    for (const f of Object.values(s.facilities)) for (const [cx, cy] of SIM.cellsOf(f)) if (cx < s.gridW && cy < s.gridH) s.grid[idx(s, cx, cy)] = f.id;
     if (!s.shelterName) s.shelterName = '우리 보호소';
     if (!s.player) s.player = { name: '나', gender: 'f' };
     if (s.tutorial === undefined) s.tutorial = null;
+    if (!s.yearLog) s.yearLog = [];
+    if (s.ending === undefined) s.ending = null;
     s.stats.born = s.stats.born || 0; s.stats.placed = s.stats.placed || 0; s.stats.doorstep = s.stats.doorstep || 0;
     for (const a of s.animals) {
+      if (a.coat == null) a.coat = D.COATS[a.breed] ? a.id % D.COATS[a.breed].length : 0;
       if (a.sex == null) { a.sex = (a.id % 2) ? 'F' : 'M'; a.neutered = a.species === 'exotic' ? null : false; a.vaccinated = false; a.pregnant = false; a.dueIn = 0; a.nursingLeft = 0; }
     }
     for (const f of Object.values(s.facilities)) if (f.buildLeft == null) f.buildLeft = 0;
@@ -133,6 +138,17 @@
     if (s.feed.length > 60) s.feed.length = 60;
   }
   const idx = (s, x, y) => y * s.gridW + x;
+  // 털색 번호(DATA.COATS 순서). 털색 표가 없는 품종은 0
+  function pickCoat(s, breed) {
+    const list = D.COATS[breed];
+    if (!list) return 0;
+    const tot = list.reduce((t, c) => t + c[2], 0);
+    let r = rand(s) * tot;
+    for (let i = 0; i < list.length; i++) { r -= list[i][2]; if (r < 0) return i; }
+    return 0;
+  }
+  SIM.coatName = (a) => { const c = D.COATS[a.breed]; return c && c[a.coat || 0] ? c[a.coat || 0][0] : null; };
+  SIM.coatTint = (a) => { const c = D.COATS[a.breed]; return c && c[a.coat || 0] ? c[a.coat || 0][1] : null; };
   SIM.size = (type) => D.FACILITIES[type].size || 1;
   const cellsOf = (type, x, y) => {
     const n = SIM.size(type), out = [];
@@ -161,6 +177,50 @@
     return id;
   }
 
+  /* ---------- 이어 짓기 묶음 ---------- */
+  // 견사: 같은 줄로 붙은 것을 x축 방향 먼저, 다음 y축 방향으로 최대 3칸씩 묶는다
+  // 산책장: 상하좌우로 붙은 것을 최대 8칸까지 한 마당으로 묶는다
+  SIM.groups = (s) => {
+    const at = (x, y, type) => { const f = SIM.facilityAt(s, x, y); return f && f.type === type && !f.buildLeft ? f : null; };
+    const kennels = facList(s, 'kennel').sort((a, b) => a.y - b.y || a.x - b.x);
+    const used = new Set(), kennel = [];
+    for (const axis of ['x', 'y']) {
+      for (const k of kennels) {
+        if (used.has(k.id)) continue;
+        const run = [k];
+        while (run.length < D.MERGE.kennel) {
+          const last = run[run.length - 1];
+          const nx = at(last.x + (axis === 'x' ? 1 : 0), last.y + (axis === 'y' ? 1 : 0), 'kennel');
+          if (!nx || used.has(nx.id)) break;
+          run.push(nx);
+        }
+        if (run.length > 1) { run.forEach((f) => used.add(f.id)); kennel.push({ axis, ids: run.map((f) => f.id), x: k.x, y: k.y, len: run.length }); }
+      }
+    }
+    for (const k of kennels) if (!used.has(k.id)) kennel.push({ axis: 'x', ids: [k.id], x: k.x, y: k.y, len: 1 });
+    const seen = new Set(), yard = [];
+    for (const y0 of facList(s, 'yard').sort((a, b) => a.y - b.y || a.x - b.x)) {
+      if (seen.has(y0.id)) continue;
+      const cells = [], queue = [y0];
+      seen.add(y0.id);
+      while (queue.length && cells.length < D.MERGE.yard) {
+        const f = queue.shift();
+        cells.push(f);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const g = at(f.x + dx, f.y + dy, 'yard');
+          if (g && !seen.has(g.id) && cells.length + queue.length < D.MERGE.yard) { seen.add(g.id); queue.push(g); }
+        }
+      }
+      yard.push({ ids: cells.map((f) => f.id), cells: cells.map((f) => [f.x, f.y]), len: cells.length });
+    }
+    return { kennel, yard };
+  };
+  // 견사 한 칸의 정원: 묶음의 첫 칸이 붙인 칸 수만큼 더 받는다
+  SIM.kennelCap = (s, f, groups) => {
+    const g = (groups || SIM.groups(s)).kennel.find((k) => k.ids.includes(f.id));
+    return D.FACILITIES.kennel.cap + (g && g.ids[0] === f.id ? g.len - 1 : 0);
+  };
+
   /* ---------- 땅 넓히기 ---------- */
   SIM.expandLand = (s) => {
     const next = D.LAND[s.land + 1];
@@ -188,10 +248,12 @@
 
   function freeHome(s, species) {
     const types = species === 'dog' ? ['kennel'] : species === 'cat' ? ['cattery'] : ['exotic', 'kennel'];
+    const groups = SIM.groups(s);
     for (const type of types) {
       for (const f of facList(s, type)) {
         const n = s.animals.filter((a) => a.home === f.id).length;
-        if (n < D.FACILITIES[type].cap) return f.id;
+        const cap = type === 'kennel' ? SIM.kennelCap(s, f, groups) : D.FACILITIES[type].cap;
+        if (n < cap) return f.id;
       }
     }
     return null;
@@ -199,7 +261,8 @@
   // 특수동물이 전용 사육장이 아닌 곳에 있으면 '임시 거처'
   SIM.makeshift = (s, a) => a.species === 'exotic' && s.facilities[a.home] && s.facilities[a.home].type !== 'exotic';
   SIM.capacity = (s) => {
-    const dog = facList(s, 'kennel').length * D.FACILITIES.kennel.cap;
+    const groups = SIM.groups(s);
+    const dog = facList(s, 'kennel').reduce((a, f) => a + SIM.kennelCap(s, f, groups), 0);
     const cat = facList(s, 'cattery').length * D.FACILITIES.cattery.cap;
     const nd = s.animals.filter((a) => a.species === 'dog').length;
     const nc = s.animals.filter((a) => a.species === 'cat').length;
@@ -291,6 +354,7 @@
     return m < 12 ? `${Math.max(1, m)}개월` : `${Math.floor(m / 12)}살`;
   };
   SIM.ageGroup = (a) => (a.ageDays < 365 ? D.AGE.groups[0] : a.ageDays >= 96 * 30 ? D.AGE.groups[2] : D.AGE.groups[1]);
+  SIM.ageAdopt = (a) => { const y = a.ageDays / 365; return (D.AGE.adoptCurve.find(([lim]) => y < lim) || [0, 0.25])[1]; };
   SIM.ageName = (a) => D.AGE.names[a.species][SIM.ageGroup(a).key];
   // 들어올 때 나이는 추정값이다. 보호소에서 태어난 아이만 정확하다
   SIM.ageText = (a) => `${a.bornHere ? '' : '추정 '}${SIM.ageLabel(a.ageDays)} (${SIM.ageName(a)})`;
@@ -305,7 +369,7 @@
     let cost = injured ? randInt(s, D.INJURY.cost[0] / 100_000, D.INJURY.cost[1] / 100_000) * 100_000 : 0;
     if (s.intakePolicy === 'care') cost = Math.round(cost * 0.8 / 100_000) * 100_000;
     const ageDays = opts.ageDays || randInt(s, g.months[0], g.months[1]) * 30;
-    const sex = rand(s) < 0.5 ? 'F' : 'M';
+    const sex = b.femaleOnly || rand(s) < 0.5 ? 'F' : 'M';
     const adult = ageDays >= D.MEDICAL.neuter.minDays;
     const exotic = b.species === 'exotic';
     const neutered = exotic ? null : adult && rand(s) < D.MEDICAL.intake.neutered;
@@ -319,6 +383,7 @@
       health: injured ? randInt(s, 10, 25) : randInt(s, 30, 70),
       trust: closed ? 0 : opts.returned ? 30 : randInt(s, 15, 45), social: randInt(s, 20, 50),
       closed, opened: false, days: 0, returned: !!opts.returned, fat, dietDays: 0,
+      coat: opts.coat ?? pickCoat(s, breedKey),
       injured, surgeryCost: cost,
     };
   }
@@ -483,8 +548,9 @@
       // 새끼는 어미 곁에서 지낸다(정원을 넘을 수 있다)
       const baby = {
         id: s.nextId++, name: freeName(s), breed: mom.breed, species: mom.species, home: mom.home,
-        sex: rand(s) < 0.5 ? 'F' : 'M', neutered: false, vaccinated: false, pregnant: false, dueIn: 0, nursingLeft: 0,
+        sex: b.femaleOnly || rand(s) < 0.5 ? 'F' : 'M', neutered: false, vaccinated: false, pregnant: false, dueIn: 0, nursingLeft: 0,
         ageDays: 0, bornHere: true, health: 60, trust: 70, social: 40,
+        coat: rand(s) < 0.6 ? (mom.coat || 0) : pickCoat(s, mom.breed),
         closed: false, opened: false, days: 0, returned: false, fat: false, dietDays: 0, injured: false, surgeryCost: 0,
       };
       s.animals.push(baby);
@@ -547,6 +613,9 @@
         checkNewCombos(s, ev);
       }
     }
+    // 기념일(세계 고양이의 날 등)
+    const today = SIM.dateOf(s.day);
+    for (const d of D.DAYS) if (today.month === d.month && today.dayOfMonth === d.day && !s.pending.some((p) => p.kind === 'memorial')) s.pending.push({ kind: 'memorial', id: d.id });
     const cs = SIM.combos(s);
     const phase = trendPhase(s);
 
@@ -559,6 +628,7 @@
     const groom = power(s, 'groom', attending);
     const n = Math.max(6, s.animals.length);
     const rainy = hasBuff(s, 'rain');
+    const yardBig = 1 + D.MERGE.yardBonus * (Math.max(1, ...SIM.groups(s).yard.map((g) => g.len)) - 1);
 
     const births = [];
     for (const a of s.animals) {
@@ -581,7 +651,7 @@
       if ((a.species === 'cat' && !short.churu) || (a.species === 'dog' && !a.fat && !short.dogchew)) tg *= 1.2;
       a.trust = clamp(a.trust + tg * ms, 0, 100);
       let sg = 0.2 + train * 1.8 / n + care * 0.6 / n + (short.toys ? 0 : 0.15);
-      if (a.species === 'dog' && has(s, 'yard')) sg += 0.6 * b.energy * (cs.walk.has(fac.id) ? 1.3 : 1);
+      if (a.species === 'dog' && has(s, 'yard')) sg += 0.6 * b.energy * yardBig * (cs.walk.has(fac.id) ? 1.3 : 1);
       if (rainy) sg *= 0.5;
       if (a.fat) sg *= D.DIET.socialMult;
       a.social = clamp(a.social + sg * ms, 0, 100);
@@ -648,11 +718,12 @@
     const celebOn = activeCelebs(s).length > 0;
     for (const a of [...s.animals]) {
       if (!SIM.isReady(a)) continue;
-      let p = 0.03 * D.BREEDS[a.breed].adopt * (1 + s.reputation / 400) * fee.adopt * (1 + groom * 0.04) * (a.fat ? D.DIET.adoptMult : 1) * SIM.ageGroup(a).adopt;
+      let p = 0.03 * D.BREEDS[a.breed].adopt * (1 + s.reputation / 400) * fee.adopt * (1 + groom * 0.04) * (a.fat ? D.DIET.adoptMult : 1) * SIM.ageAdopt(a);
       if (has(s, 'adoption')) p *= 1.5;
       if (cs.meet.size) p *= 1.2;
       if (activeCampaign(s, 'adoptDay')) p *= 1.6;
       if (celebOn) p *= 1.3;
+      for (const b of s.buffs) if (b.adopt && b.until > s.day && (!b.species || b.species === a.species)) p *= b.adopt;
       if (s.trend && a.breed === s.trend.breed && (phase === 'viral' || phase === 'boom')) p *= 1.4;
       if (rand(s) >= p) continue;
       if (s.inv.carriers < 1) {
@@ -675,13 +746,13 @@
       if (fee.fee) income(s, 'fee', fee.fee);
       const gift = randInt(s, 10, 30) * 10_000;
       income(s, 'gift', gift);
-      s.reputation += a.closed ? 5 : 2;
-      const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3;
-      s.album.unshift({ id: a.id, name: a.name, breed: a.breed, day: s.day, ageDays: a.ageDays, news: [], next: 0,
+      s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep : 0);
+      const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1);
+      s.album.unshift({ id: a.id, name: a.name, breed: a.breed, coat: a.coat, day: s.day, ageDays: a.ageDays, news: [], next: 0,
         returnDay: willReturn ? s.day + randInt(s, 30, 90) : null, closed: a.closed });
       if (s.album.length > 80) s.album.length = 80;
       ev.push({ type: 'adopt', animal: a.id, text: `${a.name} 입양! (책임비 ${won(fee.fee)} · 후원 ${won(gift)})` });
-      pushFeed(s, a.closed ? `한때 마음을 닫았던 ${j(a.name, '이가')} 새 가족을 만났다` : `${a.name}의 새 가족이 입양 후기를 올렸다`, 'good');
+      pushFeed(s, a.closed ? `한때 마음을 닫았던 ${j(a.name, '이가')} 새 가족을 만났다` : SIM.ageGroup(a).key === 'senior' ? `${SIM.ageLabel(a.ageDays)} ${j(a.name, '이가')} 새 가족을 만났다. 노령 입양 이야기가 공유되고 있다` : `${a.name}의 새 가족이 입양 후기를 올렸다`, 'good');
     }
 
     // 입양 간 아이 소식과 '다시 돌아온 아이'
@@ -690,7 +761,7 @@
         e.back = true;
         s.stats.returned++;
         s.reputation = Math.max(0, s.reputation - 3);
-        intakeAnimal(s, e.breed, false, ev, { returned: true, name: e.name, ageDays: e.ageDays + (s.day - e.day) });
+        intakeAnimal(s, e.breed, false, ev, { returned: true, name: e.name, coat: e.coat, ageDays: e.ageDays + (s.day - e.day) });
         ev.push({ type: 'popup', title: '다시 돌아온 아이', body: `${j(e.name, '이가')} 새 가족과 맞지 않아 돌아왔어요.\n입양 전 상담과 책임비가 이런 일을 줄여요.` });
         continue;
       }
@@ -874,7 +945,15 @@
     } else s.lowFunds = 0;
 
     if (monthIdx % 3 === 0) quarterReport(s, ev);
-    if (monthIdx % 12 === 0) ev.push({ type: 'year', summary: SIM.summary(s) });
+    if (monthIdx % 12 === 0) {
+      const sum = SIM.summary(s);
+      s.yearLog.push({ year: sum.year, rescued: sum.rescued, adopted: sum.adopted, donors: sum.donors, money: sum.money, rank: sum.rank });
+      // 10년째 결산은 엔딩이 대신한다. 엔딩은 한 번만 나온다
+      if (monthIdx / 12 === D.ENDING.years && !s.ending) {
+        s.ending = { day: s.day, continued: false };
+        ev.push({ type: 'ending', report: SIM.finalReport(s) });
+      } else ev.push({ type: 'year', summary: sum });
+    }
   }
 
   function startTrend(s, ev) {
@@ -1012,6 +1091,18 @@
       a.health = Math.max(a.health, 40);
       if (s.intakePolicy === 'care') s.reputation += 3;
       ev.push({ type: 'toast', text: `${a.name} 수술 성공! 이제 회복만 남았어요` });
+    } else if (p.kind === 'memorial') {
+      const d = D.DAYS.find((x) => x.id === p.id), o = D.DAY_EVENT[choice === 'party' ? 'party' : 'post'];
+      if (s.money < o.cost) return { ok: false, msg: '자금이 부족해요' };
+      if (o.cost) expense(s, 'campaign', o.cost);
+      const add = Math.round(randInt(s, o.donors[0], o.donors[1]) * (1 + power(s, 'sns') * 0.08) * s.snsMult);
+      s.donors += add;
+      s.awareness = clamp(s.awareness + o.aware, 0, 100);
+      s.reputation += o.rep;
+      s.buffs.push({ id: `day-${d.id}`, until: s.day + o.days, adopt: o.adopt, species: d.species });
+      const who = d.species === 'cat' ? '고양이' : d.species === 'dog' ? '강아지' : '아이';
+      pushFeed(s, choice === 'party' ? `${d.name}을 맞아 ${s.shelterName}에서 ${who}들을 만나는 행사가 열렸다` : `${j(s.shelterName, '이가')} ${d.name} 맞이 ${who} 소개 글을 올렸다`, 'good');
+      ev.push({ type: 'toast', text: `${d.name}: 정기후원자 +${add}, ${o.days}일간 ${who} 입양 ×${o.adopt}` });
     } else if (p.kind === 'corporate') {
       if (choice === 'accept') {
         s.corporate = { until: s.day + D.CORPORATE.months * DPM, monthly: D.CORPORATE.monthly };
@@ -1254,7 +1345,36 @@
     };
   };
 
-  // 입양 조건: 건강·신뢰·사회성 + 접종 + (생후 6개월 이상이면) 중성화 + 생후 60일 이상, 임신·수유 중이 아님
+  // 10년 성과 보고와 앨범 속 아이들의 한마디. 같은 저장에서는 늘 같은 문장이 나오도록 id로 고른다
+  SIM.finalReport = (s) => {
+    const sum = SIM.summary(s), E = D.ENDING;
+    const title = E.titles.find((t) => sum.adopted >= t.min.adopted && sum.rank <= t.min.rankMax) || E.titles[E.titles.length - 1];
+    const owner = (s.staff.find((x) => x.role === 'owner') || {}).name || '선생님';
+    const fill = (t, e) => t.replaceAll('{shelter}', s.shelterName).replaceAll('{owner}', owner).replaceAll('{name}', e.name);
+    const kept = s.album.filter((e) => !e.back);
+    // 마음을 닫았던 아이를 먼저, 나머지는 앨범 전체에서 고르게 뽑는다
+    const picks = kept.filter((e) => e.closed).slice(0, 2);
+    const rest = kept.filter((e) => !picks.includes(e));
+    const want = Math.min(E.voices - picks.length, rest.length);
+    for (let i = 0; i < want; i++) picks.push(rest[Math.floor(i * rest.length / want)]);
+    const voices = picks.map((e) => {
+      const sp = D.BREEDS[e.breed] ? D.BREEDS[e.breed].species : 'dog';
+      const years = (s.day - e.day) / (12 * DPM);
+      const pool = e.closed ? E.lines.closed : years >= 5 ? E.lines.old.concat(E.lines.any) : years < 1 ? E.lines.recent.concat(E.lines.any)
+        : E.lines.any.concat(E.lines[sp] || []);
+      return { name: e.name, breed: e.breed, coat: e.coat, years: Math.floor(years), text: fill(pool[(e.id * 7) % pool.length], e) };
+    });
+    return {
+      ...sum, years: E.years, title, voices, owner,
+      born: s.stats.born, doorstep: s.stats.doorstep, donorsPeak: s.stats.donorsPeak, rep: Math.round(s.reputation),
+      facilities: Object.keys(s.facilities).length, staff: s.staff.filter((x) => x.role !== 'owner' && x.role !== 'volunteer').length,
+      yearLog: s.yearLog.slice(),
+    };
+  };
+  SIM.continueAfterEnding = (s) => { if (s.ending) s.ending.continued = true; return { ok: true }; };
+
+  // 입양 조건: 건강·신뢰·사회성 + 접종 + 생후 60일 이상, 임신·수유 중이 아님.
+  // 중성화는 필수가 아니다(2026-10-04). 대신 중성화 안 한 아이는 파양 위험이 조금 높다
   SIM.readyIssues = (a) => {
     const out = [];
     if (a.injured) out.push('수술');
@@ -1263,7 +1383,6 @@
     if (a.ageDays < D.MEDICAL.babyAdoptDays) out.push('너무 어려요');
     if (a.species !== 'exotic') {
       if (!a.vaccinated) out.push('예방접종');
-      if (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays) out.push('중성화');
       if (a.health < D.ADOPT_READY.health) out.push('건강');
       if (a.trust < D.ADOPT_READY.trust) out.push('신뢰');
       if (a.social < D.ADOPT_READY.social) out.push('사회성');

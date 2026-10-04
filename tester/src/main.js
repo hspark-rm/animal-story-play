@@ -18,6 +18,7 @@
     WORLD_W = OX + (COLS + MARGIN) * AX + MARGIN * AY + 40;
     WORLD_H = TOP + (COLS + MARGIN) * AXY + (ROWS + MARGIN) * AYY + 60;
   }
+  const CHAR_DEPTH = 2500;           // 건물(100+y)·울타리 앞에 사람과 동물을 그리는 층
   const DPR = Math.min(window.devicePixelRatio || 1, 3);
 
   // 격자 칸(x, y) 안의 한 점(u, v는 0~1) → 월드 좌표
@@ -47,6 +48,13 @@
     if (st.sprite && SPR.has(`named-${st.sprite}-${frame}`)) return `named-${st.sprite}-${frame}`;
     return `staff-${st.role === 'owner' ? 'carer' : st.role}-${frame}`;
   };
+  // 건물 그림에서 바닥 앞 꼭짓점(벽 모서리 아래 끝)의 픽셀 위치. 화분·상자처럼 앞에 놓인 장식이
+  // 모서리보다 아래로 내려온 그림이 있어서, 맨 아래 픽셀이 아니라 벽 모서리에 맞춘다(2026-10-04 실측)
+  const ANCHOR = {
+    'iso-kennel': [114, 157], 'iso-cattery': [108, 179], 'iso-clinic': [130, 148], 'iso-yard': [108, 116],
+    'iso-adoption': [119, 152], 'iso-storage': [119, 149], 'iso-shop': [110, 141], 'iso-construction': [108, 145],
+    'iso-kennel-2x': [230, 233], 'iso-kennel-2y': [115, 225], 'iso-kennel-3x': [258, 242], 'iso-kennel-3y': [88, 252],
+  };
   const facKey = (f) => {
     const t = f.buildLeft ? 'construction' : f.type;
     return SPR.has(`iso-${t}`) ? `iso-${t}` : `tile-${t}`;
@@ -54,6 +62,11 @@
   // 크기가 제각각인 그림을 월드 단위 높이(또는 너비)에 맞춘다
   const fitHeight = (spr, h, wide = 1) => { const s = h / spr.height; spr.setScale(s * wide, s); };
   const fitWidth = (spr, w) => spr.setScale(w / spr.width);
+  const anchorImg = (img, key) => {
+    const a = ANCHOR[key];
+    if (a && img.width > 1) img.setOrigin(a[0] / img.width, (a[1] + 1) / img.height);
+    else img.setOrigin(img.fallbackOrigin ?? FRONT, 1);
+  };
 
   class Shelter extends Phaser.Scene {
     constructor() { super('shelter'); }
@@ -81,9 +94,26 @@
     /* 바닥: 차분한 두 톤 바둑판 잔디와 맨 앞 흙길, 뒤쪽 두 변에 나무 울타리 */
     drawGround() {
       // 부지 바깥 동네 바닥: 연한 잔디, 앞쪽 도로
+      // 바닥 질감 그림(gt-*)이 있으면 칸마다 붙인다. tools/make_ground_tiles.py가 격자 각도에 맞춰 만든 그림이다
+      if (SPR.has('gt-grass-a')) {
+        const key = (x, y) => {
+          if (x >= 0 && y >= 0 && x < COLS && y < ROWS) return y === ROAD ? 'gt-dirt' : ((x + y) % 2 ? 'gt-grass-a' : 'gt-grass-b');
+          if (y === ROWS + 1 || x === COLS + 1) return 'gt-asphalt';
+          if (y === ROWS || x === COLS) return 'gt-paving';
+          return 'gt-meadow';
+        };
+        for (let y = -MARGIN; y < ROWS + MARGIN; y++) {
+          for (let x = -MARGIN; x < COLS + MARGIN; x++) {
+            const p = iso(x, y);
+            this.add.image(p.x, p.y, key(x, y)).setOrigin(85 / 198, 1 / 95).setScale(0.5).setDepth(-2);
+          }
+        }
+      }
+      const tex = SPR.has('gt-grass-a');
       const out = this.add.graphics().setDepth(-1);
       for (let y = -MARGIN; y < ROWS + MARGIN; y++) {
         for (let x = -MARGIN; x < COLS + MARGIN; x++) {
+          if (tex) break;
           if (x >= 0 && y >= 0 && x < COLS && y < ROWS) continue;
           const street = y === ROWS + 1 || x === COLS + 1;
           const c = street ? 0x9aa3ab : ((x + y) % 2 ? 0xbfe3a0 : 0xb6dc96);
@@ -98,8 +128,8 @@
           const road = y === ROAD;
           const c = road ? ((x + y) % 2 ? 0xe9d3a2 : 0xe2c993) : ((x + y) % 2 ? 0xa9d672 : 0x9ccd66);
           const p = [iso(x, y), iso(x + 1, y), iso(x + 1, y + 1), iso(x, y + 1)];
-          g.fillStyle(c, 1).fillPoints(p, true);
-          g.lineStyle(1, 0xffffff, 0.18).strokePoints(p, true);
+          if (!tex) g.fillStyle(c, 1).fillPoints(p, true);
+          g.lineStyle(1, 0xffffff, tex ? 0.12 : 0.18).strokePoints(p, true);
         }
       }
       // 바닥 두께(앞쪽 두 면)
@@ -142,6 +172,29 @@
         const s = this.add.image(p.x, p.y, key).setOrigin(0.5, 1).setDepth(2 + (x + y));
         fitHeight(s, h);
       }
+    }
+
+    /* 이어 지은 산책장: 칸마다 잔디를 깔고, 바깥 둘레에만 울타리를 세운다 */
+    drawYards(groups) {
+      if (!this.yardBack) { this.yardBack = this.add.graphics().setDepth(1.5); this.yardFront = this.add.graphics(); }
+      const back = this.yardBack.clear(), front = this.yardFront.clear();
+      let maxY = 0;
+      for (const g of groups) {
+        const inG = new Set(g.cells.map(([x, y]) => `${x},${y}`));
+        for (const [x, y] of g.cells) {
+          const c = [iso(x, y), iso(x + 1, y), iso(x + 1, y + 1), iso(x, y + 1)];
+          back.fillStyle((x + y) % 2 ? 0x8ed36a : 0x84ca60, 1).fillPoints(c, true);
+          // 위·왼쪽 변은 뒤 울타리, 오른쪽·아래 변은 앞 울타리
+          const edges = [[c[0], c[1], x, y - 1, back], [c[3], c[0], x - 1, y, back], [c[1], c[2], x + 1, y, front], [c[2], c[3], x, y + 1, front]];
+          for (const [a, b, nx, ny, gfx] of edges) {
+            if (inG.has(`${nx},${ny}`)) continue;
+            for (const t of [0, 0.5, 1]) gfx.fillStyle(0x7a5232, 1).fillRect(a.x + (b.x - a.x) * t - 2, a.y + (b.y - a.y) * t - 20, 4, 20);
+            for (const h of [6, 14]) gfx.lineStyle(3, 0xc9935a, 1).lineBetween(a.x, a.y - h, b.x, b.y - h);
+            maxY = Math.max(maxY, a.y, b.y);
+          }
+        }
+      }
+      front.setDepth(100 + maxY + 3);
     }
 
     fitCamera(first) {
@@ -215,23 +268,49 @@
       for (const [id, img] of Object.entries(this.facLayer)) {
         if (!state.facilities[id]) { if (img.label) img.label.destroy(); img.destroy(); delete this.facLayer[id]; }
       }
+      // 이어 지은 견사는 긴 건물 한 동으로, 이어 지은 산책장은 울타리 마당으로 그린다
+      const groups = SIM.groups(state);
+      const kRole = {};
+      for (const g of groups.kennel) g.ids.forEach((id, i) => { kRole[id] = { g, lead: i === 0 }; });
+      this.kAxis = {};
+      for (const g of groups.kennel) if (g.len > 1) for (const id of g.ids) this.kAxis[id] = g.axis;
+      const yardBig = new Set(groups.yard.filter((g) => g.len > 1).flatMap((g) => g.ids));
+      this.drawYards(groups.yard.filter((g) => g.len > 1));
       for (const f of Object.values(state.facilities)) {
-        const key = facKey(f);
-        const n = SIM.size(f.type);
+        let key = facKey(f);
+        let n = SIM.size(f.type);
+        let front = iso(f.x + n, f.y + n);   // 바닥의 앞 꼭짓점
+        let width = TILE_W * n, originX = FRONT, hidden = yardBig.has(f.id);
+        const kr = kRole[f.id];
+        if (kr && kr.g.len > 1) {
+          const { g } = kr, L = g.len, mk = `iso-kennel-${L}${g.axis}`;
+          if (!kr.lead) hidden = true;
+          else if (SPR.has(mk)) {
+            key = mk;
+            front = g.axis === 'x' ? iso(g.x + L, g.y + 1) : iso(g.x + 1, g.y + L);
+            width = g.axis === 'x' ? L * AX + AY : AX + L * AY;
+            originX = g.axis === 'x' ? (L * AX) / width : AX / width;
+          }
+        }
+        const sig = `${key}|${f.x},${f.y}|${hidden}`;
         const base = iso(f.x + n / 2, f.y + n / 2);
-        const front = iso(f.x + n, f.y + n);   // 바닥의 앞 꼭짓점
         let img = this.facLayer[f.id];
-        // 옮긴 건물은 새 자리에 다시 세운다
-        if (img && (img.gx !== f.x || img.gy !== f.y)) { if (img.label) img.label.destroy(); img.destroy(); img = null; delete this.facLayer[f.id]; }
+        // 자리·그림이 바뀐 건물(옮김, 이어 짓기)은 다시 세운다
+        if (img && img.sig !== sig && !(f.buildLeft === 0 && img.texture.key === 'iso-construction')) { if (img.label) img.label.destroy(); img.destroy(); img = null; delete this.facLayer[f.id]; }
         if (!img) {
-          img = this.add.image(front.x, front.y + 2, key).setOrigin(FRONT, 1).setDepth(100 + front.y);
-          img.gx = f.x; img.gy = f.y;
-          fitWidth(img, TILE_W * n);
+          img = this.add.image(front.x, front.y + 1, key).setOrigin(originX, 1).setDepth(100 + front.y);
+          img.fallbackOrigin = originX;
+          anchorImg(img, key);
+          img.sig = sig;
+          img.setVisible(!hidden);
+          fitWidth(img, width);
           if (!first) { const s = img.scaleY; this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 220, ease: 'Back.Out' }); }
           this.facLayer[f.id] = img;
         } else if (img.texture.key !== key) {
           img.setTexture(key);
-          fitWidth(img, TILE_W * n);
+          anchorImg(img, key);
+          img.sig = sig;
+          fitWidth(img, width);
           const s = img.scaleY;
           this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 260, ease: 'Back.Out' });
           this.floatText(base.x, base.y - 60, '완공!', '#e8743b');
@@ -281,11 +360,24 @@
       if (spr.texture.key !== t.key) spr.setTexture(t.key);
       const h = a.ageDays < 120 ? 20 : a.species === 'cat' ? 28 : 34;
       fitHeight(spr, h, t.wide);
+      const tint = SIM.coatTint(a);
+      if (tint) spr.setTint(tint); else spr.clearTint();
       if (spr.flipped) spr.scaleX = -Math.abs(spr.scaleX);
     }
 
     // 집 칸 안의 아무 곳(테두리 조금 안쪽)
-    spotIn(f) { const n = SIM.size(f.type); return iso(f.x + 0.2 + Math.random() * (n - 0.4), f.y + 0.2 + Math.random() * (n - 0.4)); }
+    // 동물은 집 건물 앞쪽 띠(앞 두 변 근처)에 세운다. 건물 그림 안쪽에 두면 지붕에 가려 안 보인다.
+    // 이어 지은 견사는 긴 벽 앞으로만 다닌다(칸 사이 벽 쪽으로 가면 건물 속에 묻힌다)
+    spotIn(f) {
+      const n = SIM.size(f.type), r = Math.random, along = 0.15 + r() * (n - 0.3), depth = n - 0.05 - r() * 0.2;
+      const axis = this.kAxis && this.kAxis[f.id];
+      // 앞 칸에 다른 건물이 있는 변은 피한다(그 건물 지붕 위에 서 있는 것처럼 보인다)
+      const blocked = (edge) => { for (let i = 0; i < n; i++) { const o = edge === 'y' ? SIM.facilityAt(state, f.x + i, f.y + n) : SIM.facilityAt(state, f.x + n, f.y + i); if (o && o.id !== f.id && o.type !== 'yard') return true; } return false; };
+      const by = blocked('y'), bx = blocked('x');
+      let onY = axis ? axis === 'x' : r() < 0.5;     // 앞쪽 y변(왼쪽 앞) 또는 x변(오른쪽 앞)
+      if (!axis && by !== bx) onY = !by;
+      return onY ? iso(f.x + along, f.y + depth) : iso(f.x + depth, f.y + along);
+    }
 
     leave(spr) {
       this.floatText(spr.x, spr.y - 40, '♥', '#e85a7a');
@@ -340,7 +432,7 @@
         if (!spr.target || Math.random() < 0.004) spr.target = this.spotIn(home);
         const step = (spr.animal && spr.animal.fat ? 0.45 : 0.8) * k;
         if (this.wander(spr, spr.target, step) && Math.random() < 0.02) spr.target = this.spotIn(home);
-        spr.setDepth(100 + spr.y + 1);
+        spr.setDepth(CHAR_DEPTH + spr.y + 1);   // 사람·동물은 건물보다 늘 앞에 그린다
       }
       const facs = Object.values(state.facilities);
       for (const spr of Object.values(this.staffSpr)) {
@@ -348,7 +440,7 @@
           const f = facs[Math.floor(Math.random() * facs.length)];
           spr.target = f ? iso(f.x + 0.5, Math.min(f.y + 1.2, ROAD + 0.5)) : tileCenter(COLS / 2, ROAD);
         }
-        spr.setDepth(100 + spr.y + 2);
+        spr.setDepth(CHAR_DEPTH + spr.y + 2);
       }
     }
 

@@ -12,12 +12,13 @@
   // PNG가 있으면 그것을 쓰고, 없으면 아래 글자 그림으로 그린다
   const FILES = new Set(G.SPRITE_FILES || []);
   SPR.has = (key) => FILES.has(key);
-  SPR.path = (key) => `assets/sprites/${key}.png`;
+  // 그림도 버전을 붙여 불러온다(예전 그림이 캐시에 남지 않게)
+  SPR.path = (key) => `assets/sprites/${key}.png${G.BUILD && G.BUILD.version ? `?v=${G.BUILD.version}` : ''}`;
   // 시설 아이콘은 아이소메트릭 건물 그림이 있으면 그것을 쓴다
   const SPR_TILE = (key) => (FILES.has(`iso-${key}`) ? `iso-${key}` : `tile-${key}`);
   SPR.preload = (scene) => {
     for (const key of FILES) {
-      if (/^(tile|animal|staff|named|iso|deco|bg|player)-/.test(key)) scene.load.image(key, SPR.path(key));
+      if (/^(tile|animal|staff|named|iso|deco|bg|player|gt)-/.test(key)) scene.load.image(key, SPR.path(key));
     }
   };
 
