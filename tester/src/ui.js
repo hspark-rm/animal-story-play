@@ -208,6 +208,14 @@ ${flags.join(' · ') || '건강한 편이에요'}
           { label: '다음에 다시 오시라고 하기', ghost: true, run: () => done('later') },
         ]);
       }
+    } else if (p.kind === 'external') {
+      const e = D.EXTERNAL.events.find((x) => x.id === p.id);
+      const fx = [e.aware ? `인식 ${e.aware > 0 ? '+' : ''}${e.aware}` : '', e.donors ? `정기후원자 ${e.donors > 0 ? '+' : ''}${Math.round(e.donors * 100)}%` : '', e.surge ? `${e.surge.days}일간 보호 요청 ×${e.surge.mult}` : '', e.transferPenalty ? `${e.transferPenalty.days}일간 이송 시 평판 추가 -${e.transferPenalty.extra}` : ''].filter(Boolean).join(' · ');
+      const acts = e.respond
+        ? [{ label: `${e.respond.label} (${won(e.respond.cost)}원)`, note: `정기후원자 +${Math.round(e.respond.donors * 100)}% · 평판 +${e.respond.rep}${e.respond.aware ? ` · 인식 +${e.respond.aware}` : ''}`, disabled: state.money < e.respond.cost, run: () => done('respond') },
+          { label: '조용히 지켜보기', ghost: true, run: () => done('skip') }]
+        : [{ label: '확인', run: () => done('ok') }];
+      choice(e.title, `${icon('event', 'news') || ''}\n${esc(e.body.replace('{who}', e.who))}${esc(p.extra || '')}\n<span class="note">${fx}</span>`, acts);
     } else if (p.kind === 'memorial') {
       const d = D.DAYS.find((x) => x.id === p.id), P = D.DAY_EVENT.party, Q = D.DAY_EVENT.post;
       const who = d.species === 'cat' ? '고양이' : d.species === 'dog' ? '강아지' : '모든 아이';

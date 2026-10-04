@@ -510,7 +510,7 @@
       if (events) events.push({ type: 'toast', text: `${bn} ${j(a.name, '을를')} ${j(npc, '으로')} 안내했어요` });
     } else {
       s.stats.transferred++; s.ledger.transferred++;
-      s.reputation = Math.max(0, s.reputation - 1);
+      s.reputation = Math.max(0, s.reputation - 1 - s.buffs.filter((b) => b.transfer && b.until > s.day).reduce((t, b) => t + b.transfer, 0));
       if (events) events.push({ type: 'toast', text: `자리가 없어요. ${bn} 한 마리를 ${j(npc, '으로')} 보냈어요` });
       pushFeed(s, `더 받을 자리가 없어 ${j(bn, '이가')} ${j(npc, '으로')} 옮겨 갔다`, 'warn');
     }
@@ -773,6 +773,30 @@
     }
   }
 
+  // 바깥 사건(다른 보호소의 스캔들, 제도 변화). 아직 안 일어난 것 중 조건이 맞는 것을 고른다
+  function externalEvent(s, monthIdx, ev) {
+    const X = D.EXTERNAL;
+    s.extDone = s.extDone || [];
+    if (monthIdx < X.fromMonth || s.pending.some((p) => p.kind === 'external') || rand(s) >= X.monthlyChance) return;
+    const pool = X.events.filter((e) => !s.extDone.includes(e.id) && (!e.needAfter || s.extDone.includes(e.needAfter)));
+    if (!pool.length) return;
+    const e = pick(s, pool);
+    s.extDone.push(e.id);
+    s.awareness = clamp(s.awareness + e.aware, 0, 100);
+    if (e.donors) s.donors = Math.max(0, Math.round(s.donors * (1 + e.donors)));
+    if (e.rep) s.reputation += e.rep;
+    if (e.surge) s.buffs.push({ id: `surge-${e.id}`, until: s.day + e.surge.days, intake: e.surge.mult });
+    if (e.transferPenalty) s.buffs.push({ id: 'transferPenalty', until: s.day + e.transferPenalty.days, transfer: e.transferPenalty.extra });
+    if (e.lawCheck) {
+      // 신고제: 비좁게(임시 거처) 운영 중이면 평판 -, 아니면 +
+      const cramped = s.animals.some((a) => SIM.makeshift(s, a));
+      s.reputation = Math.max(0, s.reputation + (cramped ? -8 : 6));
+      e.extra = cramped ? '\n우리 보호소에는 비좁게 지내는 아이가 있어 평판이 깎였어요.' : '\n우리 보호소는 기준을 넉넉히 지켜 평판이 올랐어요.';
+    }
+    pushFeed(s, e.title, e.donors < 0 || e.aware < 0 ? 'warn' : 'good');
+    s.pending.push({ kind: 'external', id: e.id, extra: e.extra || '' });
+  }
+
   SIM.tick = (s) => {
     const ev = [];
     s.day++;
@@ -959,6 +983,7 @@
     let pIn = 0.1 + (100 - s.awareness) / 100 * 0.18;
     if (phase === 'wave') pIn += 0.2 * s.trend.intensity;
     pIn *= D.INTAKE_RATE * SIM.speciesShare(s);
+    for (const b of s.buffs) if (b.intake && b.until > s.day) pIn *= b.intake;   // 바깥 사건으로 몰려드는 아이들
     // 튜토리얼 중(첫 식구가 오기 전)에는 길에서 오는 아이가 없다
     const quiet = s.tutorial && s.tutorial.step < 4;
     if (!quiet && rand(s) < Math.min(0.85, pIn)) intakeAnimal(s, chooseBreed(s), false, ev);
@@ -1120,6 +1145,7 @@
       }
     } else s.lowFunds = 0;
 
+    externalEvent(s, monthIdx, ev);
     if (monthIdx % 3 === 0) quarterReport(s, ev);
     if (monthIdx % 12 === 0) {
       const sum = SIM.summary(s);
@@ -1279,6 +1305,18 @@
       } else {
         a.trust = Math.min(100, a.trust + 3);
         pushFeed(s, `${j(p.family, '이가')} 다음에 다시 오겠다며 돌아갔다`, 'calm');
+      }
+    } else if (p.kind === 'external') {
+      const e = D.EXTERNAL.events.find((x) => x.id === p.id);
+      const r = e && e.respond;
+      if (choice === 'respond' && r) {
+        if (s.money < r.cost) return { ok: false, msg: '자금이 부족해요' };
+        expense(s, 'campaign', r.cost);
+        s.donors = Math.round(s.donors * (1 + r.donors));
+        s.reputation += r.rep;
+        if (r.aware) s.awareness = clamp(s.awareness + r.aware, 0, 100);
+        pushFeed(s, r.text, 'good');
+        ev.push({ type: 'toast', text: r.text });
       }
     } else if (p.kind === 'memorial') {
       const d = D.DAYS.find((x) => x.id === p.id), o = D.DAY_EVENT[choice === 'party' ? 'party' : 'post'];
