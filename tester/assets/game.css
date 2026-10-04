@@ -273,3 +273,10 @@ details.memo { margin: 2px 0; }
 #site-tabs button small { font-size: 9px; color: var(--ink-2); }
 #site-tabs button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 #site-tabs button[aria-pressed="true"] small { color: #ffeedd; }
+
+/* 아이 카드 상태 그림(v0.10) */
+.pose-card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0 2px; }
+.pose-portrait { image-rendering: pixelated; max-width: 100%; height: auto; }
+/* 2단 세부 탭(v0.10): 1단보다 작고 옅게 */
+.tabs.tabs2 { margin-top: -4px; }
+.tabs.tabs2 button { font-size: 12px; padding: 4px 8px; opacity: .92; }

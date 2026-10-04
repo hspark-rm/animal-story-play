@@ -932,7 +932,7 @@
     if (cost == null || !SIM.needs(a, kind)) return { ok: false };
     if (s.money < cost) return { ok: false, msg: '자금이 부족해요' };
     expense(s, 'medical', cost);
-    if (kind === 'vaccine') a.vaccinated = true; else a.neutered = true;
+    if (kind === 'vaccine') a.vaccinated = true; else { a.neutered = true; a.coneDays = D.MEDICAL.neuter.coneDays; }   // 수술 뒤 넥카라(그림만, 능력치 영향 없음)
     return { ok: true, msg: `${a.name} ${D.MEDICAL[kind].name} 완료 (${won(cost)})` };
   }
   SIM.treat = (s, id, kind) => {
@@ -1162,6 +1162,7 @@
       a.days++;
       a.ageDays++;
       if (a.nursingLeft) a.nursingLeft--;
+      if (a.coneDays) a.coneDays--;
       if (a.pregnant && --a.dueIn <= 0) births.push(a);
       const b = D.BREEDS[a.breed];
       const fac = s.facilities[a.home];

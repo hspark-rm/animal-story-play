@@ -1,7 +1,7 @@
 // 보호소 지도 그리기와 시간 진행. 계산은 SIM, 메뉴는 UI가 맡는다.
 // 지도는 비대칭 아이소메트릭(마름모 바닥)으로 그린다. 논리 격자(x, y)는 그대로 두고 화면 좌표만 바꾼다.
 (function (G) {
-  const D = G.DATA, SIM = G.SIM, SPR = G.SPR, UI = G.UI;
+  const D = G.DATA, SIM = G.SIM, SPR = G.SPR, UI = G.UI, POSE = G.POSE;
   // 바닥 격자의 두 축. 건물 그림이 정면 대칭이 아니라 왼쪽 앞에서 본 각도로 그려져 있어서,
   // 그림 속 산책장 울타리에서 잰 기울기에 맞춘다(x축 0.367, y축 0.62, 가로폭 57:43)
   const AX = 56, AXY = 56 * 0.367;   // x가 1 늘 때: 오른쪽으로 AX, 아래로 AXY
@@ -130,7 +130,9 @@
       this.animalSpr = {};
       this.staffSpr = {};
       this.frame = 0;
-      this.time.addEvent({ delay: 320, loop: true, callback: () => { this.frame ^= 1; this.flipFrames(); } });
+      this.tick4 = 0;
+      // 160ms마다: 동물 포즈(걷기 4장·꼬리 흔들기)를 넘기고, 두 번에 한 번 사람 걷기 2장을 넘긴다
+      this.time.addEvent({ delay: 160, loop: true, callback: () => { this.tick4 = (this.tick4 + 1) % 4; if (this.tick4 % 2 === 0) this.frame ^= 1; this.flipFrames(this.tick4 % 2 === 0); } });
       this.setupInput();
       this.fitCamera(true);
       // 장면을 다시 시작할 때마다 resize 구독이 쌓이지 않게, 끝날 때 떼어 낸다
@@ -598,13 +600,35 @@
 
     sizeAnimal(spr) {
       const a = spr.animal;
-      const t = animalTex(a, spr.moving ? this.frame : 0);
-      if (spr.texture.key !== t.key) spr.setTexture(t.key);
       const h = a.ageDays < 120 ? 20 : a.species === 'cat' ? 28 : 34;
-      fitHeight(spr, h, t.wide);
+      if (POSE && POSE.has(a.breed)) {
+        // 포즈 띠(v0.10): 걷기 1번 높이가 h가 되도록 시트 전체를 같은 배율로 그린다(누운 자세는 낮게 보인다)
+        const key = `pose-${a.breed}`;
+        if (spr.texture.key !== key) spr.setTexture(key);
+        spr.setFrame(POSE.frame(a.breed, this.poseName(spr)));
+        spr.setScale(h / POSE.sheet(a.breed).ref);
+      } else {
+        const t = animalTex(a, spr.moving ? this.frame : 0);
+        if (spr.texture.key !== t.key) spr.setTexture(t.key);
+        fitHeight(spr, h, t.wide);
+      }
       const tint = SIM.coatTint(a);
       if (tint) spr.setTint(tint); else spr.clearTint();
       if (spr.flipped) spr.scaleX = -Math.abs(spr.scaleX);
+    }
+
+    // 지금 보여 줄 포즈: 상태 그림이 먼저, 그다음 이동(걷기 4장·달리기), 그다음 쉬는 습성(spr.idlePose)
+    poseName(spr) {
+      const a = spr.animal, st = POSE.stateOf(a), f4 = this.tick4 || 0, f2 = f4 % 2;
+      if (spr.moving) {
+        const w = POSE.walkOf(st);
+        if (w) return w;
+        return spr.running && !st ? `run-${f2}` : `walk-${f4}`;
+      }
+      if (st) return st;
+      if (spr.cheer > this.time.now) return `wag-${f2}`;
+      const p = spr.idlePose || 'sit';
+      return p === 'wag' ? `wag-${f2}` : p;
     }
 
     // 집 칸 안의 아무 곳(테두리 조금 안쪽)
@@ -628,8 +652,13 @@
     pickActivity(spr, home) {
       const a = spr.animal, inv = state.inv, r = Math.random();
       spr.act = 'home';
+      spr.running = false;
       let to = this.spotIn(home);
       if (!a) { this.go(spr, to); return; }
+      const st = POSE && POSE.stateOf(a);
+      // 아픈 아이·젖 먹이는 엄마는 자리를 지키고, 마음 닫은 아이·다친 아이·임신한 아이는 집 앞만 오간다
+      if (POSE && POSE.still(st)) { spr.path = []; spr.hold = this.time.now + 4000 + Math.random() * 4000; return; }
+      if (st && st !== 'fat') { this.go(spr, to); return; }
       if (a.species === 'dog') {
         const yards = Object.values(state.facilities).filter((f) => f.type === 'yard' && !f.buildLeft);
         const energy = D.BREEDS[a.breed].energy;
@@ -638,7 +667,7 @@
           spr.act = 'train'; to = iso(y.x + 0.2 + Math.random() * 0.6, y.y + 0.2 + Math.random() * 0.6);
         } else if (r < 0.3 + 0.25 * energy) {
           const t = this.walkSpot(a, home);
-          if (t) { spr.act = 'walk'; to = t; }
+          if (t) { spr.act = 'walk'; to = t; spr.running = Math.random() < (energy >= 1.2 || SIM.ageGroup(a).key === 'baby' ? 0.5 : 0.15) && !a.fat; }
         } else if (r < 0.95 && ((inv.toys || 0) > 0 || (inv.dogchew || 0) > 0)) spr.act = 'play';
       } else if (a.species === 'cat' && r < 0.3 && ((inv.toys || 0) > 0 || (inv.churu || 0) > 0)) spr.act = 'play';
       this.go(spr, to);
@@ -663,12 +692,17 @@
     onArrive(spr) {
       const a = spr.animal;
       if (!a || !spr.active) return;
+      if (spr.act === 'home' || (spr.act === 'walk' && Math.random() < 0.5)) {
+        spr.idlePose = POSE ? POSE.idle(a, SIM.ageGroup(a).key) : null;
+        spr.hold = this.time.now + 3000 + Math.random() * 6000;
+      }
       if (spr.act === 'train') {
+        spr.idlePose = 'wag';
         spr.hold = this.time.now + 2600;
         this.tweens.add({ targets: spr, y: spr.y - 10, duration: 180, yoyo: true, repeat: 2, ease: 'Quad.Out' });
         if (Math.random() < 0.6) this.floatText(spr.x, spr.y - 40, ['앉아!', '기다려!', '점프!', '잘했어!', '손!'][Math.floor(Math.random() * 5)], '#3a8a3a');
       } else if (spr.act === 'play') this.play(spr);
-      else if (spr.act === 'fetch') { if (spr.onFetch) spr.onFetch(); spr.onFetch = null; spr.act = 'home'; spr.hold = this.time.now + 800; }
+      else if (spr.act === 'fetch') { if (spr.onFetch) spr.onFetch(); spr.onFetch = null; spr.act = 'home'; spr.running = false; spr.cheer = this.time.now + 1600; spr.hold = this.time.now + 1600; }
       else if (spr.act === 'walk' && Math.random() < 0.4) spr.hold = this.time.now + 1200;   // 냄새 맡기
     }
 
@@ -686,7 +720,7 @@
         const to = { x: spr.x + dir * (40 + Math.random() * 30), y: spr.y + (Math.random() - 0.5) * 24 };
         if (!this.walkable(to)) return;   // 공이 건물 쪽으로 굴러가면 던지지 않는다
         this.tweens.add({ targets: ball, x: to.x, y: to.y, duration: 650, ease: 'Quad.Out' });
-        spr.act = 'fetch'; this.go(spr, to, true);
+        spr.act = 'fetch'; spr.running = true; this.go(spr, to, true);
         spr.prop = ball;
         spr.onFetch = () => { ball.destroy(); spr.prop = null; this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); };
         return;
@@ -813,8 +847,10 @@
       const sx = Math.abs(person.scaleX), sy = person.scaleY, h = person.displayHeight;
       person.setTexture(`${base}-hug`);
       person.setScale(sx, sy);
-      const held = this.add.image(person.x, person.y - h * 0.34, t.key).setOrigin(0.5, 0.6).setDepth(person.depth + 0.05);
-      fitHeight(held, a.species === 'cat' ? 17 : 19, t.wide);
+      const pk = POSE && POSE.has(a.breed) ? a.breed : null;
+      const held = (pk ? this.add.image(person.x, person.y - h * 0.34, `pose-${pk}`, POSE.frame(pk, 'sit')) : this.add.image(person.x, person.y - h * 0.34, t.key))
+        .setOrigin(0.5, 0.6).setDepth(person.depth + 0.05);
+      if (pk) held.setScale((a.species === 'cat' ? 17 : 19) / POSE.sheet(pk).ref); else fitHeight(held, a.species === 'cat' ? 17 : 19, t.wide);
       const tint = SIM.coatTint(a);
       if (tint) held.setTint(tint);
       if (person.flipped) held.scaleX = -Math.abs(held.scaleX);
@@ -824,16 +860,17 @@
       for (let i = 0; i < 2; i++) this.time.delayedCall(400 + i * 900, () => this.floatText(person.x, person.y - h - 6, '♥', '#e85a7a'));
       this.time.delayedCall(ms, () => {
         held.destroy();
-        if (spr.active) spr.setVisible(true);
+        if (spr.active) { spr.setVisible(true); spr.cheer = this.time.now + 2000; }
         person.hugging = false;
         if (person.active) { person.setTexture(`${base}-0`); person.setScale(sx * (person.flipped ? -1 : 1), sy); }
       });
       return true;
     }
 
-    flipFrames() {
-      for (const v of this.visitors || []) if (v.active && !v.hugging) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX); }
+    flipFrames(people = true) {
       for (const spr of Object.values(this.animalSpr)) if (spr.active && spr.animal) this.sizeAnimal(spr);
+      if (!people) return;
+      for (const v of this.visitors || []) if (v.active && !v.hugging) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX); }
       for (const spr of Object.values(this.staffSpr)) {
         if (spr.hugging) continue;
         const k = staffKey(spr.staff, spr.moving ? this.frame : 0);
@@ -1046,7 +1083,8 @@
         if (!spr.path) this.pickActivity(spr, home);
         const a = spr.animal, bb = a && D.BREEDS[a.breed];
         const pace = a && a.species === 'dog' ? (SIM.dogSize(a) === 'large' ? 1.15 : 0.9) * Math.min(1.3, bb.energy) : 0.7;
-        const step = (a && a.fat ? 0.45 : 0.8) * pace * k;
+        const st = a && POSE ? POSE.stateOf(a) : null;
+        const step = (a && a.fat ? 0.45 : 0.8) * pace * k * (spr.running ? 1.8 : 1) * (st === 'injured' || st === 'pregnant' ? 0.6 : 1);
         if (this.walk(spr, step)) {
           if (!spr.arrived) { spr.arrived = true; this.onArrive(spr); }
           else if (Math.random() < 0.012) this.pickActivity(spr, home);
@@ -1060,7 +1098,7 @@
         if (done && spr.careFor) {
           const a = this.animalSpr[spr.careFor];
           spr.careFor = null;
-          if (a && a.active && !this.hug(spr, staffKey(spr.staff, 0).replace(/-0$/, ''), a)) this.floatText(a.x, a.y - 36, '♥', '#e85a7a');
+          if (a && a.active && !this.hug(spr, staffKey(spr.staff, 0).replace(/-0$/, ''), a)) { this.floatText(a.x, a.y - 36, '♥', '#e85a7a'); a.cheer = this.time.now + 2200; }
           continue;
         }
         if (!spr.path || (done && Math.random() < 0.01)) {

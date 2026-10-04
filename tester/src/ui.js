@@ -479,6 +479,8 @@ ${flags.join(' · ') || '건강한 편이에요'}
   const bar = (label, v) => `<span>${label}</span><span class="bar"><i class="${v < 60 ? 'low' : ''}" style="width:${Math.round(v)}%"></i></span>`;
   const btn = (act, arg, label, opts = {}) => `<button type="button" class="act ${opts.ghost ? 'ghost' : ''}" data-act="${act}" data-arg="${esc(arg)}" ${opts.disabled ? 'disabled' : ''}>${label}</button>`;
   const tabs = (sheet, list) => `<div class="tabs">${list.map(([k, l]) => `<button type="button" data-tab="${sheet}:${k}" aria-pressed="${UI.tab[sheet] === k}">${l}</button>`).join('')}</div>`;
+  // 2단 세부 탭(v0.10): 첫 항목이 기본값. 고른 값을 돌려준다
+  const sub = (key, list) => { if (!list.some(([k]) => k === UI.tab[key])) UI.tab[key] = list[0][0]; return tabs(key, list).replace('class="tabs"', 'class="tabs tabs2"'); };
   const statsLine = (st) => `<span class="stats-line">${Object.entries(D.STATS).map(([k, l]) => `${l} <b>${st[k] ?? '?'}</b>`).join(' · ')}</span>`;
   const renameRow = (kind, id, name) => (UI.renaming && UI.renaming.id === id
     ? `<div class="rename"><input id="rename-input" maxlength="8" value="${esc(name)}" aria-label="새 이름">${btn('renameSave', `${kind}:${id}`, '저장')}${btn('renameCancel', '', '취소', { ghost: true })}</div>`
@@ -543,9 +545,9 @@ ${flags.join(' · ') || '건강한 편이에요'}
           ${btn('build', `yi:${k}`, '놓기', { disabled: state.money < it.cost || !Object.values(state.facilities).some((f) => f.type === 'yard' && !f.buildLeft) })}</div>`).join('');
         const dc = D.DECOR_COMBOS.map((c) => (state.combosFound.includes(`d-${c.id}`)
           ? `<div class="card"><b>${c.name}</b><span class="note">${c.desc}</span></div>` : '<div class="card"><b>???</b><span class="note">꾸밈을 어울리게 붙여 놓으면 발견돼요</span></div>')).join('');
-        return `${tabBar}${top}<h3 class="section-title">꾸밈 (빈칸에 놓기)</h3>${decos}
-          <h3 class="section-title">산책장 놀이기구 (산책장 칸 위에 놓기)</h3>${items}
-          <h3 class="section-title">꾸밈 콤보</h3>${dc}`;
+        const t2 = sub('deco2', [['deco', '꾸밈'], ['yard', '놀이기구'], ['combo', '콤보']]);
+        const part = { deco: `<h3 class="section-title">꾸밈 (빈칸에 놓기)</h3>${decos}`, yard: `<h3 class="section-title">산책장 놀이기구 (산책장 칸 위에 놓기)</h3>${items}`, combo: `<h3 class="section-title">꾸밈 콤보</h3>${dc}` }[UI.tab.deco2];
+        return `${tabBar}${t2}${top}${part}`;
       }
       // 시설 세분: 아이들 집 / 운영 / 후반(등급 6 이상)
       const fcat = (k, f) => (f.lv >= 6 ? 'late' : ['kennel', 'bigkennel', 'cattery', 'yard', 'exotic'].includes(k) ? 'home' : 'ops');
@@ -571,16 +573,27 @@ ${flags.join(' · ') || '건강한 편이에요'}
       const c = SIM.capacity(state);
       const order = (a) => (a.injured ? 0 : SIM.isReady(a) ? 1 : 2);
       const f = UI.tab.animals;
-      const keep = (a) => f === 'all' || (f === 'dog' && a.species === 'dog') || (f === 'cat' && a.species === 'cat') || (f === 'ready' && SIM.isReady(a)) || (f === 'care' && (a.injured || a.health < 50 || (a.allergy && a.allergy.known) || a.fat));
+      const careKinds = {
+        all: (a) => a.injured || a.health < 50 || (a.allergy && a.allergy.known) || a.fat || (a.closed && !a.opened) || a.pregnant || a.nursingLeft > 0 || a.coneDays > 0,
+        closed: (a) => a.closed && !a.opened,
+        sick: (a) => a.injured || a.health < 50 || a.coneDays > 0 || (a.allergy && a.allergy.known),
+        mom: (a) => a.pregnant || a.nursingLeft > 0,
+        fat: (a) => a.fat,
+      };
+      const n = (k) => state.animals.filter(careKinds[k]).length;
+      const t2 = f === 'care' ? sub('care2', [['all', `전체 ${n('all')}`], ['closed', `마음 닫음 ${n('closed')}`], ['sick', `아픔·회복 ${n('sick')}`], ['mom', `임신·수유 ${n('mom')}`], ['fat', `다이어트 ${n('fat')}`]]) : '';
+      const keep = (a) => f === 'all' || (f === 'dog' && a.species === 'dog') || (f === 'cat' && a.species === 'cat') || (f === 'ready' && SIM.isReady(a)) || (f === 'care' && careKinds[UI.tab.care2 || 'all'](a));
       const list = [...state.animals].filter(keep).sort((a, b) => order(a) - order(b));
-      return `${tabs('animals', [['all', `전체 ${state.animals.length}`], ['dog', '개'], ['cat', '고양이'], ['ready', '입양 준비'], ['care', '돌봄 필요']])}<p class="note">소형견 ${c.ns}/${c.small} · 중·대형견 ${c.nl}/${c.large} · 고양이 ${c.nc}/${c.cat} · 건강 ${D.ADOPT_READY.health}, 신뢰·사회성 ${D.ADOPT_READY.trust} 이상이면 입양을 기다려요. 다이어트 중인 아이는 입양 확률이 절반이에요.</p>
+      return `${tabs('animals', [['all', `전체 ${state.animals.length}`], ['dog', '개'], ['cat', '고양이'], ['ready', '입양 준비'], ['care', '돌봄 필요']])}${t2}<p class="note">소형견 ${c.ns}/${c.small} · 중·대형견 ${c.nl}/${c.large} · 고양이 ${c.nc}/${c.cat} · 건강 ${D.ADOPT_READY.health}, 신뢰·사회성 ${D.ADOPT_READY.trust} 이상이면 입양을 기다려요. 다이어트 중인 아이는 입양 확률이 절반이에요.</p>
         ${list.map(animalRow).join('') || '<p class="note">지금은 보호 중인 아이가 없어요.</p>'}`;
     },
     people() {
       let body = '';
       const t = UI.tab.people;
       if (t === 'staff') {
-        body = state.staff.map((st) => {
+        const t2 = sub('staff2', [['all', `전체 ${state.staff.length}`], ['pro', '직원'], ['vol', '봉사자']]);
+        const who = (st) => UI.tab.staff2 === 'all' || (UI.tab.staff2 === 'vol') === (st.role === 'volunteer');
+        body = t2 + state.staff.filter(who).map((st) => {
           const role = st.role === 'volunteer' ? D.VOLUNTEER.name : st.role === 'owner' ? '대표 (나)' : D.ROLES[st.role].name;
           const extra = st.role === 'volunteer'
             ? `${st.trained ? '교육 이수' : '교육 전'} · 실수 ${st.mistakes}번`
@@ -677,6 +690,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
           <span class="note">나갈 돈: ${Object.entries(fc.out).filter(([, v]) => v).map(([k, v]) => `${k} ${won(v)}`).join(' · ') || '없음'}</span>
           <span class="note">입양 책임비·모금·후원 선물처럼 그때그때 생기는 돈은 빼고 셈한 값이에요.</span></div>`;
         const loan = state.loans[0];
+        const t2 = sub('money2', [['plan', '예상'], ['policy', '정책'], ['fund', '자금'], ['auto', '자동 처리']]);
         body = `${fcard}<div class="card"><b>받는 아이</b><span class="note">${D.SPECIES_POLICIES[state.speciesPolicy || 'both'].desc}</span>
           <div class="tabs">${Object.entries(D.SPECIES_POLICIES).map(([k, sp]) => `<button type="button" data-act="species" data-arg="${k}" aria-pressed="${(state.speciesPolicy || 'both') === k}">${sp.name}</button>`).join('')}</div></div>
           <div class="card"><b>입소 기준</b><span class="note">${D.INTAKE_POLICIES[state.intakePolicy].desc}</span>
@@ -694,6 +708,10 @@ ${flags.join(' · ') || '건강한 편이에요'}
           <label class="toggle"><input type="checkbox" id="subsidy" ${state.subsidy ? 'checked' : ''}> 보조금 받기</label></div>
           <div class="card"><b>기업 후원</b><span class="note">${state.corporate ? `협약 중 · 매달 ${won(state.corporate.monthly)}원 · ${Math.ceil((state.corporate.until - state.day) / 30)}개월 남음` : `평판 ${D.CORPORATE.minRep} 이상이고 회계 보고에 문제가 없으면 제안이 와요.`}</span></div>
           <div class="card"><b>굿즈샵</b><span class="note">[건설]에서 지을 수 있어요. 평판과 SNS 담당이 매출을 키워요.</span></div>`;
+        // 카드 제목으로 묶음을 나눈다(예상: 다음 달 예상·굿즈샵 / 정책: 받는 아이·입소 기준·책임비 / 자금: 대출·보조금·기업 후원 / 자동: 진료·보고서)
+        const groups = { plan: ['다음 달', '굿즈샵'], policy: ['받는 아이', '입소 기준', '입양 책임비'], fund: ['대출', '지자체 위탁', '기업 후원'], auto: ['진료 자동', '분기 보고서'] }[UI.tab.money2];
+        const cards = body.split(/(?=<div class="card)/).filter((c) => groups.some((g) => c.includes(`<b>${g}`)));
+        body = t2 + cards.join('');
       } else if (t === 'report') {
         body = state.report ? `<h3 class="section-title">${state.report.label}</h3>${reportHTML(state.report, state.prevReport)}`
           : `<p class="note">${state.reportDue ? '제출을 기다리는 보고서가 있어요. 하단의 반짝이는 버튼을 누르세요.' : '첫 분기 보고서는 3월 말에 나와요.'}</p>`;
@@ -728,7 +746,8 @@ ${flags.join(' · ') || '건강한 편이에요'}
           ${G.released.length ? `<span class="note">굿즈 판매 월 약 ${won(SIM.goodsMonthly(state))}원</span>` : ''}
           ${G.dev ? `<span class="note">${D.GOODS.find((x) => x.id === G.dev.id).name} 개발 중 · ${G.dev.left}일 남음</span>`
             : next && hasShop ? `<div class="btns">${btn('goods', next.id, `${next.name} 개발 · ${won(next.cost)}원 · ${next.days}일`, { disabled: state.money < next.cost })}</div>` : ''}</div>`;
-        body = ch + rows + goods;
+        const t2 = sub('project2', [['biz', '사업'], ['tube', '유튜브'], ['goods', '굿즈']]);
+        body = t2 + ({ biz: rows, tube: ch || '<p class="note">[유튜브 채널 만들기] 사업을 마치면 열려요.</p>', goods }[UI.tab.project2]);
       }
       return tabs('manage', [['campaign', '캠페인'], ['celeb', '섭외'], ['project', '특수 사업'], ['money', '운영·자금'], ['report', '보고서'], ['rank', '순위']]) + body;
     },
@@ -807,6 +826,24 @@ ${flags.join(' · ') || '건강한 편이에요'}
       <div class="btns">${btn('interact', `${a.id}:pet`, done('pet') ? '쓰다듬기 (오늘 함)' : '쓰다듬기', { disabled: done('pet') })}
       ${btn('interact', `${a.id}:treat`, done('treat') ? '간식 (오늘 함)' : `간식 주기 · ${D.ITEMS[item].name} ${Math.floor(state.inv[item] || 0)}`, { disabled: done('treat') || a.fat || (state.inv[item] || 0) < 1 })}
       ${btn('interact', `${a.id}:play`, done('play') ? '놀아 주기 (오늘 함)' : '놀아 주기', { disabled: done('play') || (state.inv.toys || 0) < 0.2 })}</div>`;
+    // 지금 상태 그림(v0.10): 아프거나 마음을 닫았으면 그 모습, 아니면 신뢰에 따라 앉기·꼬리 흔들기·발라당
+    const P = G.POSE;
+    if (P && P.hasCloseup(a.breed)) {
+      const box = document.createElement('div');
+      box.className = 'pose-card';
+      const t = document.createElement('span'); t.className = 'note';
+      box.appendChild(P.closeup(a.breed, () => state.animals.find((x) => x.id === id), (text) => { t.textContent = text; }));
+      box.appendChild(t);
+      $('sheet-body').prepend(box);
+    } else if (P && P.has(a.breed)) {
+      const st = P.stateOf(a);
+      const pose = st || (a.trust >= 70 ? 'belly' : a.trust >= 45 ? 'wag-0' : 'sit');
+      const box = document.createElement('div');
+      box.className = 'pose-card';
+      box.appendChild(P.portrait(a.breed, pose, SIM.coatTint(a)));
+      if (st) { const t = document.createElement('span'); t.className = 'note'; t.textContent = P.LABEL[st]; box.appendChild(t); }
+      $('sheet-body').prepend(box);
+    }
   };
 
   UI.showFacility = (f) => {

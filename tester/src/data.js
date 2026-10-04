@@ -435,7 +435,7 @@
     // 바깥 동물병원 비용(지자체 중성화 지원을 받은 값). 진료실+수의사가 있으면 inHouse 비율만 든다
     vaccine: { name: '필수 예방접종', cost: { dog: 30_000, cat: 25_000, exotic: 80_000 }, minDays: 60,
       detail: { dog: '종합백신·광견병', cat: '종합백신', exotic: '전문 수의사 상담' } },
-    neuter:  { name: '중성화 수술',   cost: { dog: 150_000, cat: 100_000 }, minDays: 180 },
+    neuter:  { name: '중성화 수술',   cost: { dog: 150_000, cat: 100_000 }, minDays: 180, coneDays: 10 },   // 수술 뒤 넥카라 10일
     inHouse: 0.4,              // 진료실+수의사가 있으면 비용의 40%만 든다
     babyAdoptDays: 60,         // 생후 60일이 지나야 입양 갈 수 있다
     intake: { vaccinated: 0.3, neutered: 0.25 },   // 성체로 들어올 때 이미 되어 있을 확률
