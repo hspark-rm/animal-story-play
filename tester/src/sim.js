@@ -1620,6 +1620,20 @@
   };
 
   // choice: injury → 'pay' | 'fund' | 'transfer', corporate → 'accept' | 'decline', forceTransfer → extra = 보낼 아이 id 목록
+  // 자동 선택 규칙(v0.12): 밸런스 시험(tools/sim_test.js)과 게임 시험 모드(?test&auto)가 같은 규칙을 쓴다
+  SIM.botChoice = (s, p, strategy = 'normal') => {
+    if (p.kind === 'injury') {
+      const a = s.animals.find((x) => x.id === p.id);
+      const fund = a ? SIM.fundraiseEstimate(s, a.surgeryCost) : 0;
+      if (!a || s.money > a.surgeryCost * 2.5) return 'pay';
+      if (strategy === 'normal' && s.money + fund > a.surgeryCost * 1.3) return 'fund';
+      return 'transfer';
+    }
+    if (p.kind === 'visit') return strategy === 'normal' ? (p.ready ? 'adopt' : 'reserve') : 'later';
+    if (p.kind === 'external') return strategy === 'normal' ? 'respond' : 'skip';
+    if (p.kind === 'memorial') return strategy === 'normal' && s.money > 5_000_000 ? 'party' : 'post';
+    return 'accept';
+  };
   SIM.resolve = (s, choice, extra) => {
     const p = s.pending.shift();
     if (!p) return { ok: false };

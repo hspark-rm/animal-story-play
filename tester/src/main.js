@@ -609,6 +609,7 @@
           const spr = this.add.sprite(p.x, p.y, staffKey(st, 0)).setOrigin(0.5, 1);
           fitHeight(spr, 54);
           spr.staff = st;
+          this.applyPerson(spr, staffKey(st, 0).replace(/-0$/, ''));
           this.staffSpr[st.id] = spr;
         }
       }
@@ -633,6 +634,23 @@
       const tint = SIM.coatTint(a);
       if (tint) spr.setTint(tint); else spr.clearTint();
       if (spr.flipped) spr.scaleX = -Math.abs(spr.scaleX);
+    }
+
+    // 사람 그림(v0.12): 포즈 띠가 있으면 이동 방향에 맞춰 앞(아래로)·뒤(위로) 3/4 걷기 4장, 멈추면 그 방향 서기,
+    // 안아 줄 때 안기, 말할 때 손 흔들기. 새 그림은 왼쪽을 보고 있어 오른쪽으로 갈 때 뒤집는다(예전 그림은 반대)
+    personH(base) { return /visitor-(boy|girl)/.test(base) ? 40 : base === 'visitor-student' ? 49 : 54; }
+    applyPerson(o, base) {
+      if (!POSE || !POSE.has(base)) return false;
+      const back = !!o.dirUp;
+      const name = o.hugging ? 'hug' : o.waving > this.time.now ? 'wave' : o.moving ? `${back ? 'b' : 'f'}walk-${this.tick4 || 0}` : back ? 'bidle' : 'fidle';
+      const key = `pose-${base}`;
+      if (o.texture.key !== key) o.setTexture(key);
+      o.setFrame(POSE.frame(base, name));
+      const sc = this.personH(base) / POSE.sheet(base).ref;
+      o.setScale((o.flipped ? 1 : -1) * sc, sc);
+      o.bodyH = this.personH(base);
+      o.posed = true;
+      return true;
     }
 
     // 감정 말풍선(v0.11): 머리 위에 잠깐 뜬다. 상태가 핵심 정보라 그림보다 먼저 읽히게 한다
@@ -835,7 +853,8 @@
         const d = Math.hypot(to.x - o.x, to.y - o.y);
         o.moving = true;
         if (Math.abs(to.x - o.x) > 1.5) o.flipped = to.x < o.x;
-        o.scaleX = (o.flipped ? -1 : 1) * Math.abs(o.scaleX);
+        if (Math.abs(to.y - o.y) > 1) o.dirUp = to.y < o.y;
+        if (!(o.base && this.applyPerson(o, o.base))) o.scaleX = (o.flipped ? -1 : 1) * Math.abs(o.scaleX);
         this.tweens.add({ targets: o, x: to.x, y: to.y, duration: Math.max(60, d * msPerPx), ease: pts.length ? 'Linear' : 'Sine.Out',
           onUpdate: () => o.setDepth(this.charDepth(o.x, o.y)), onComplete: stepTo });
       };
@@ -863,6 +882,7 @@
       const people = who.map((key, i) => {
         const v = this.add.sprite(street.x - i * 14, street.y + i * 4, `${key}-0`).setOrigin(0.5, 1).setScale(0.72);
         v.base = key;
+        this.applyPerson(v, key);
         (this.visitors = (this.visitors || []).filter((x) => x.active)).push(v);
         // 방문자 표시: 맨 앞 사람 머리 위에 "처음 왔어요~ / 또 왔어요~"
         if (i === 0) v.label = this.add.text(v.x, v.y, again ? '또 왔어요~' : '처음 왔어요~', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '13px', color: again ? '#d0466e' : '#2f66c8', stroke: '#ffffff', strokeThickness: 4 }).setOrigin(0.5, 1).setDepth(5200);
@@ -880,7 +900,7 @@
         people.forEach((v, i) => {
           v.flipped = v.x > (spr.px ?? spr.x); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX);
           if (!(hugged && i === 0)) this.tweens.add({ targets: v, scaleY: v.scaleY * 0.88, duration: 260, yoyo: true, repeat: 2, delay: i * 200 });
-          this.time.delayedCall(300 + i * 700, () => this.floatText(v.x, v.y - 58, D.VISIT.talk[Math.floor(Math.random() * D.VISIT.talk.length)], '#3b6fd0'));
+          this.time.delayedCall(300 + i * 700, () => { v.waving = this.time.now + 1300; this.floatText(v.x, v.y - 58, D.VISIT.talk[Math.floor(Math.random() * D.VISIT.talk.length)], '#3b6fd0'); });
         });
         if (spr.active) {
           this.tweens.add({ targets: spr, y: spr.y - 9, duration: 170, yoyo: true, repeat: 3, delay: 400 });
@@ -898,13 +918,14 @@
     // 기본 모습이 아니라 교감할 때만 쓴다. 큰 개(중·대형견 성견)는 안지 않고 쪼그려 쓰다듬는다
     hug(person, base, spr, ms = 2600) {
       const a = spr && spr.animal;
-      if (!a || !spr.active || !SPR.has(`${base}-hug`)) return false;
+      if (!a || !spr.active || !(SPR.has(`${base}-hug`) || (POSE && POSE.has(base)))) return false;
       if (a.species === 'dog' && SIM.dogSize(a) === 'large' && SIM.ageGroup(a).key !== 'baby') return false;
       const t = animalTex(a, 0);
       person.hugging = true;
-      const sx = Math.abs(person.scaleX), sy = person.scaleY, h = person.displayHeight;
-      person.setTexture(`${base}-hug`);
-      person.setScale(sx, sy);
+      const sx = Math.abs(person.scaleX), sy = person.scaleY;
+      const posed = this.applyPerson(person, base);
+      const h = posed ? person.bodyH : person.displayHeight;
+      if (!posed) { person.setTexture(`${base}-hug`); person.setScale(sx, sy); }
       const pk = POSE && POSE.has(a.breed) ? a.breed : null;
       const held = (pk ? this.add.image(person.x, person.y - h * 0.34, `pose-${pk}`, POSE.frame(pk, 'sit')) : this.add.image(person.x, person.y - h * 0.34, t.key))
         .setOrigin(0.5, 0.6).setDepth(person.depth + 0.05);
@@ -920,17 +941,21 @@
         held.destroy();
         if (spr.active) { spr.setVisible(true); spr.cheer = this.time.now + 2000; this.emote(spr, 'heart'); }
         person.hugging = false;
-        if (person.active) { person.setTexture(`${base}-0`); person.setScale(sx * (person.flipped ? -1 : 1), sy); }
+        if (person.active && !this.applyPerson(person, base)) { person.setTexture(`${base}-0`); person.setScale(sx * (person.flipped ? -1 : 1), sy); }
       });
       return true;
     }
 
     flipFrames(people = true) {
       for (const spr of Object.values(this.animalSpr)) if (spr.active && spr.animal) this.sizeAnimal(spr);
-      if (!people) return;
-      for (const v of this.visitors || []) if (v.active && !v.hugging) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX); }
+      for (const v of this.visitors || []) {
+        if (!v.active || (v.hugging && !(POSE && POSE.has(v.base)))) continue;
+        if (this.applyPerson(v, v.base)) continue;
+        if (people) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX); }
+      }
       for (const spr of Object.values(this.staffSpr)) {
-        if (spr.hugging) continue;
+        if (this.applyPerson(spr, staffKey(spr.staff, 0).replace(/-0$/, ''))) continue;
+        if (spr.hugging || !people) continue;
         const k = staffKey(spr.staff, spr.moving ? this.frame : 0);
         if (spr.texture.key !== k) { spr.setTexture(k); fitHeight(spr, 54); if (spr.flipped) spr.scaleX = -Math.abs(spr.scaleX); }
       }
@@ -1102,7 +1127,8 @@
       else { spr.px += dx / dist * spr.v; spr.py += dy / dist * spr.v; }
       spr.moving = path.length > 0;
       if (Math.abs(dx) > 1.5) spr.flipped = dx < 0;            // 거의 수직으로 갈 때는 방향을 바꾸지 않는다
-      spr.scaleX = (spr.flipped ? -1 : 1) * Math.abs(spr.scaleX);
+      if (Math.abs(dy) > 0.3) spr.dirUp = dy < 0;               // 위로 가면 뒷모습(사람 4방향)
+      if (!spr.posed) spr.scaleX = (spr.flipped ? -1 : 1) * Math.abs(spr.scaleX);   // 포즈 띠 사람은 applyPerson이 방향을 정한다
       spr.phase += spr.v * 0.32;
       this.place(spr);
       return !path.length;
@@ -1124,14 +1150,16 @@
           this.sync(false);
           if (state.day % D.TIME.daysPerMonth === 0) UI.save(state);
           if (UI.modalOpen) { acc = 0; break; }
+          if (G.TEST_AUTO && state.reportDue) UI.handle(SIM.submitReport(state, false));   // 자동 시험: 분기 보고서도 바로 낸다
         }
       }
       UI.hud();
       // 방문자 머리 위 말: 따라다니고, 방문자가 떠나면 지운다
-      for (const v of this.visitors || []) if (v.label) { if (v.active) v.label.setPosition(v.x, v.y - v.displayHeight - 3); else { v.label.destroy(); v.label = null; } }
+      for (const v of this.visitors || []) if (v.label) { if (v.active) v.label.setPosition(v.x, v.y - (v.bodyH || v.displayHeight) - 3); else { v.label.destroy(); v.label = null; } }
       if (this.paused) return;
 
-      const k = Math.max(1, speed) * dt / 16;
+      // 화면 속 걸음은 4배속까지만 빨라진다(×20 시험 배속에서 사람·동물이 날아다니지 않게)
+      const k = Math.min(Math.max(1, speed), 4) * dt / 16;
       // 건물 화면 범위는 세워질 때 커지는 연출이 있어 가끔 다시 잰다
       if (this.sorted && (this.boundsTick = (this.boundsTick || 0) + 1) % 45 === 0) for (const n of this.sorted) if (n.o.active) n.b = n.o.getBounds();
       for (const spr of Object.values(this.animalSpr)) {
@@ -1276,6 +1304,8 @@
         type: Phaser.AUTO, parent: 'game', width: Math.round(w * DPR), height: Math.round(h * DPR), pixelArt: true,
         backgroundColor: '#a8dcef',
         scale: { mode: Phaser.Scale.NONE, zoom: 1 / DPR },
+        // 시험 모드: 화면 갱신(rAF) 대신 타이머로 돌린다. 창이 가려져도 시간이 흘러 자동 검증을 할 수 있다
+        fps: G.TEST ? { forceSetTimeOut: true, target: 60 } : undefined,
         scene: Shelter,
       });
       new ResizeObserver(resizeGame).observe(document.getElementById('game'));
@@ -1289,6 +1319,12 @@
   }
 
   function startNew() {
+    // 자동 시험: 첫 화면을 건너뛰고 바로 시작한다(?career=director|influencer|ordinary, ?seed=숫자로 고정 가능)
+    if (G.TEST_AUTO) {
+      const q = new URLSearchParams(location.search);
+      begin(SIM.newGame(q.has('seed') ? Number(q.get('seed')) : undefined, q.get('career') || 'ordinary', { tutorial: false, species: 'both' }));
+      return;
+    }
     UI.showStart((career, opts) => {
       begin(SIM.newGame(undefined, career, opts));
       if (!opts.tutorial) UI.event('보호소 운영 안내', '· [건설]에서 견사·묘사를 늘리세요. 붙여 지으면 콤보가 생겨요\n· [물품]에서 사료와 모래를 사 두세요. 떨어지면 아이들이 아파요\n· [사람]에서 봉사자와 직원을 모으세요\n· [경영]에서 입소 기준, 분기 보고서, SNS 유행을 확인하세요\n· 지도는 두 손가락으로 확대하고, 끌어서 옮길 수 있어요');
@@ -1328,12 +1364,47 @@
   });
   UI.setSpeed(speed);
 
+  // 자동 시험은 매번 새 게임(&keep이면 시험 저장에서 이어 한다), 배속은 ?speed=(기본 20)
+  if (G.TEST_AUTO && !new URLSearchParams(location.search).has('keep')) UI.clearSave();
   const saved = UI.load();
   if (saved) begin(saved); else startNew();
+  if (G.TEST_AUTO) { speed = Number(new URLSearchParams(location.search).get('speed')) || 20; UI.setSpeed(speed); }
   window.addEventListener('pagehide', () => { if (state) UI.save(state); });
+
+  // 시험 모드(?test): 오류를 모으고, 화면 왼쪽 아래에 FPS·날짜·배속·오류 수를 띄운다
+  if (G.TEST) {
+    window.addEventListener('error', (e) => G.TESTLOG.errors.push([state ? state.day : 0, String(e.message), `${e.filename || ''}:${e.lineno || ''}`]));
+    window.addEventListener('unhandledrejection', (e) => G.TESTLOG.errors.push([state ? state.day : 0, String(e.reason)]));
+    const hud = document.createElement('div');
+    hud.id = 'test-hud';
+    hud.style.cssText = 'position:fixed;left:6px;bottom:calc(env(safe-area-inset-bottom,0px) + 74px);z-index:50;font:12px/1.3 ui-monospace,monospace;background:rgba(20,24,20,.72);color:#e8f5d8;padding:4px 7px;border-radius:6px;pointer-events:none;white-space:pre';
+    document.body.appendChild(hud);
+    let frames = 0, last = performance.now();
+    const loop = () => { frames++; requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+    setInterval(() => {
+      const now = performance.now(); let fps = Math.round(frames * 1000 / (now - last)); frames = 0; last = now;
+      if (game && game.loop) fps = Math.round(game.loop.actualFps);   // 타이머로 돌 때도 실제 갱신 횟수
+      G.TESTLOG.fps = fps;
+      if (!state) return;
+      hud.textContent = `TEST${G.TEST_AUTO ? ' AUTO' : ''} ×${speed}  ${fps}fps\n${SIM.dateLabel(state.day)} (day ${state.day})  아이 ${state.animals.length}  오류 ${G.TESTLOG.errors.length}`;
+    }, 500);
+  }
 
   // 점검용: 콘솔에서 GAME.advance(30)처럼 며칠을 한 번에 진행한다
   G.GAME = {
+    // 시험 모드 명령: GAME.test.speed(20), GAME.test.report(), GAME.test.run(365)
+    test: {
+      speed: (v) => { speed = v; UI.setSpeed(v); },
+      run(days) { for (let i = 0; i < days; i++) { UI.handle(SIM.tick(state)); UI.askPending(); if (G.TEST_AUTO && state.reportDue) UI.handle(SIM.submitReport(state, false)); } if (scene()) scene().sync(false); return this.report(); },
+      report() {
+        const st = state.stats, sc = scene();
+        return { day: state.day, date: SIM.dateLabel(state.day), money: state.money, rep: Math.round(state.reputation), level: state.level, animals: state.animals.length,
+          rescued: st.rescued, adopted: st.adopted, pending: state.pending.length, fps: G.TESTLOG.fps, errors: G.TESTLOG.errors.slice(-10),
+          events: G.TESTLOG.events.length, choices: G.TESTLOG.choices.length, sprites: sc ? sc.children.length : 0 };
+      },
+      log: () => G.TESTLOG,
+    },
     state: () => state,
     phaser: () => game,
     iso: (x, y) => iso(x, y),   // 점검용: 격자 → 월드 좌표

@@ -4,7 +4,12 @@
   const $ = (id) => document.getElementById(id);
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const won = (v) => `${Math.round(v / 10000).toLocaleString()}만`;
-  const SAVE_KEY = 'animal-story-save-v2';
+  // 시험 모드(v0.12): 주소에 ?test가 있으면 켜진다. ?test&auto면 선택 창·사건 카드를 자동 처리해 멈추지 않는다.
+  // 저장 칸을 따로 써서 테스터의 실제 저장을 덮지 않는다
+  const Q = new URLSearchParams(location.search);
+  G.TEST = Q.has('test'); G.TEST_AUTO = G.TEST && Q.has('auto');
+  G.TESTLOG = { events: [], choices: [], errors: [] };
+  const SAVE_KEY = 'animal-story-save-v2' + (G.TEST ? '-test' : '');
 
   const UI = { sheet: null, modalOpen: false, tab: { people: 'staff', manage: 'campaign', build: 'fac', animals: 'all', goods: 'all', facs: 'home', album: 'all' }, renaming: null };
   const BUILD = G.BUILD || { flavor: 'dev', version: '0' };
@@ -99,6 +104,17 @@
     if (UI.modalOpen) return;
     const m = queue.shift();
     if (!m) { if (hooks) hooks.onModal(false); return; }
+    if (G.TEST_AUTO) {
+      // 자동 시험: 사건 카드는 기록만 하고, 선택 창은 첫 번째 고를 수 있는 항목을 고른다
+      const day = state ? state.day : 0;
+      if (m.type === 'event') { G.TESTLOG.events.push([day, m.title]); return pump(); }
+      const a = m.actions.find((x) => !x.disabled);
+      G.TESTLOG.choices.push([day, m.title, a ? a.label : '(없음)']);
+      UI.modalOpen = true; UI.currentChoice = m;
+      if (a) a.run(); else closeOverlay();
+      if (UI.modalOpen && UI.currentChoice === m) closeOverlay();
+      return;
+    }
     UI.modalOpen = true;
     hooks.onModal(true);
     if (m.type === 'event') {
@@ -185,6 +201,17 @@
   UI.askPending = () => {
     if (UI.modalOpen || !state || !state.pending.length) return;
     const p = state.pending[0];
+    if (G.TEST_AUTO) {
+      // 자동 시험: 밸런스 시험과 같은 규칙으로 고른다(돈이 모자라 되돌려진 선택은 건너뛴다)
+      for (let guard = 0; state.pending.length && guard < 50; guard++) {
+        const q = state.pending[0], c = SIM.botChoice(state, q);
+        const r = SIM.resolve(state, c);
+        G.TESTLOG.choices.push([state.day, q.kind, c]);
+        if (state.pending[0] === q) state.pending.shift();
+        if (r && r.events) UI.handle(r.events);
+      }
+      return;
+    }
     const done = (c, extra) => { const r = SIM.resolve(state, c, extra); closeOverlay(); UI.handle(r.events); };
     if (p.kind === 'intake') {
       const a = p.animal, b = D.BREEDS[a.breed];
@@ -925,6 +952,11 @@ ${flags.join(' · ') || '건강한 편이에요'}
     for (const b of document.querySelectorAll('[data-sheet]')) {
       const u = SPR.iconURL('ui', { build: 'build', animals: 'animals', people: 'people', goods: 'goods', manage: 'manage', album: 'album' }[b.dataset.sheet], D);
       if (u) b.insertAdjacentHTML('afterbegin', `<img class="dock-ico" alt="" src="${u}">`);
+    }
+    if (G.TEST) {
+      // 시험 모드: ×20 단추를 더한다(일반 플레이에는 없다)
+      const four = document.querySelector('[data-speed="4"]');
+      if (four && !document.querySelector('[data-speed="20"]')) four.insertAdjacentHTML('afterend', '<button type="button" data-speed="20" aria-label="20배속">×20</button>');
     }
     for (const b of document.querySelectorAll('[data-speed]')) {
       const v = Number(b.dataset.speed);
