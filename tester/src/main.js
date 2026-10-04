@@ -81,7 +81,9 @@
     create() {
       setDims(state);
       SPR.build(this, D);
-      this.cameras.main.setBackgroundColor('#a8dcef');
+      this.cameras.main.setBackgroundColor(SPR.has('bg-canopy') ? '#5f9e45' : '#a8dcef');
+      // 게임개발스토리식 배경: 지도 바깥을 숲 무늬 한 장으로 끝없이 채운다(빈 하늘색이 보이지 않게)
+      if (SPR.has('bg-canopy')) this.add.tileSprite(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 'bg-canopy').setTileScale(0.5).setDepth(-20);
       this.drawGround();
       this.drawDecor();
       this.gridLines = this.add.graphics().setDepth(5);
@@ -171,15 +173,38 @@
         // 앞쪽 길가
         ['bg-busstop', C + 2.6, R - 4, 110], ['bg-car', C * 0.4, R + 2.6, 80], ['bg-garden', C + 2.8, 1.5, 110],
       ];
+      const taken = new Set();
       for (const [key, x, y, h] of spots) {
         if (!SPR.has(key)) continue;
         const p = iso(x, y);
         const s = this.add.image(p.x, p.y, key).setOrigin(0.5, 1).setDepth(2 + (x + y));
         fitHeight(s, h);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) taken.add(`${Math.floor(x) + dx},${Math.floor(y) + dy}`);
+      }
+      // 바깥 둘레를 나무로 채운다. 부지에서 멀수록 빽빽하게, 같은 그림 몇 장을 크기·좌우만 바꿔 되풀이한다
+      const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) ^ 0x5bd1e995; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+      const kinds = [['deco-tree', 105, 125], ['bg-trees', 95, 120], ['deco-tree', 95, 115], ['deco-bush', 45, 60]].filter(([k]) => SPR.has(k));
+      if (!kinds.length) return;
+      for (let y = -MARGIN; y < ROWS + MARGIN; y++) {
+        for (let x = -MARGIN; x < COLS + MARGIN; x++) {
+          if (x >= 0 && y >= 0 && x < COLS && y < ROWS) continue;          // 부지
+          if (x >= COLS && x <= COLS + 1 && y < ROWS + 2) continue;          // 오른쪽 보도·도로
+          if (y >= ROWS && y <= ROWS + 1 && x < COLS + 2) continue;          // 앞쪽 보도·도로
+          if (taken.has(`${x},${y}`)) continue;
+          const d = Math.max(-x, -y, x - COLS + 1, y - ROWS + 1);            // 부지에서 떨어진 칸 수
+          const r = hash(x, y);
+          const front = y > ROWS + 1 || x > COLS + 1;                         // 도로 건너편은 시야를 가리지 않게 성기게
+          if (d <= 1 || r > (d >= 4 ? 0.9 : d >= 3 ? 0.65 : 0.35) * (front ? 0.55 : 1)) continue;
+          const [key, h0, h1] = kinds[Math.floor(hash(y, x) * kinds.length)];
+          const tx = x + 0.3 + hash(x + 7, y) * 0.4, ty = y + 0.3 + hash(x, y + 7) * 0.4;
+          const p = iso(tx, ty);
+          const img = this.add.image(p.x, p.y, key).setOrigin(0.5, 1).setDepth(2 + tx + ty);
+          fitHeight(img, h0 + (h1 - h0) * r);
+          if (hash(x + 3, y + 5) < 0.5) img.setFlipX(true);
+        }
       }
     }
 
-    /* 이어 지은 산책장: 칸마다 잔디를 깔고, 바깥 둘레에만 울타리를 세운다 */
     // 이어 지은 산책장: 칸마다 잔디를 깔고, 바깥 변에만 산책장 그림에서 떼어 낸 울타리 조각을 세운다
     // (tools/make_yard_parts.py). 위·왼쪽 변은 뒤 울타리, 오른쪽·아래 변은 앞 울타리
     drawYards(groups) {
@@ -458,6 +483,31 @@
         spr.act = 'fetch'; spr.target = to; spr.arrived = false;
         spr.onFetch = () => { ball.destroy(); this.floatText(spr.x, spr.y - 36, '♥', '#e85a7a'); };
         return;
+      }
+      if (kind === 'toys' && a.species === 'cat') {
+        // 고양이 장난감은 개와 다르다: 털실 공을 굴려 쫓거나, 낚싯대 깃털에 뛰어오른다
+        if (Math.random() < 0.5 && SPR.has('prop-yarn')) {
+          const yarn = prop('prop-yarn', spr.x + dir * 8, spr.y);
+          fitHeight(yarn, 11);
+          const to = { x: spr.x + dir * (22 + Math.random() * 16), y: spr.y + (Math.random() - 0.5) * 14 };
+          this.tweens.add({ targets: yarn, x: to.x, y: to.y, angle: dir * 360, duration: 700, ease: 'Quad.Out' });
+          spr.act = 'fetch'; spr.target = { x: to.x - dir * 8, y: to.y }; spr.arrived = false;
+          spr.onFetch = () => {
+            this.tweens.add({ targets: yarn, x: yarn.x + dir * 6, duration: 140, yoyo: true, repeat: 3, onComplete: () => yarn.destroy() });
+            this.floatText(spr.x, spr.y - 30, '♥', '#e85a7a');
+          };
+          return;
+        }
+        if (SPR.has('prop-wand')) {
+          const wand = prop('prop-wand', spr.x + dir * 14, spr.y - 22);
+          fitHeight(wand, 20);
+          if (dir < 0) wand.setFlipX(true);
+          spr.hold = this.time.now + 2600;
+          this.tweens.add({ targets: wand, angle: { from: -18, to: 18 }, duration: 260, yoyo: true, repeat: 4 });
+          this.tweens.add({ targets: spr, y: spr.y - 12, duration: 200, yoyo: true, repeat: 3, ease: 'Quad.Out' });
+          this.time.delayedCall(2600, () => { wand.destroy(); if (spr.active) this.floatText(spr.x, spr.y - 30, '♥', '#e85a7a'); });
+          return;
+        }
       }
       const img = prop(`item-${kind}`, spr.x + dir * 12, spr.y - 2);
       spr.hold = this.time.now + 2800;

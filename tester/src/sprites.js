@@ -18,7 +18,7 @@
   const SPR_TILE = (key) => (FILES.has(`iso-${key}`) ? `iso-${key}` : `tile-${key}`);
   SPR.preload = (scene) => {
     for (const key of FILES) {
-      if (/^(tile|animal|staff|named|iso|deco|bg|player|gt|yard|item)-/.test(key)) scene.load.image(key, SPR.path(key));
+      if (/^(tile|animal|staff|named|iso|deco|bg|player|gt|yard|item|prop)-/.test(key)) scene.load.image(key, SPR.path(key));
     }
   };
 
