@@ -179,6 +179,7 @@
       else if (e.type === 'ending') showEnding(e.report);
       else if (e.type === 'closure') { if (G.TESTLOG) G.TESTLOG.closures = (G.TESTLOG.closures || 0) + 1; showClosure(e.report); }
       else if (e.type === 'emote') { if (hooks.onEmote) hooks.onEmote(e.id, e.key); }
+      else if (e.type === 'groomed') { if (hooks.onGroomed) hooks.onGroomed(e.id); }
       else if (e.type === 'visit') { if (hooks.onVisit) hooks.onVisit(e.animal, e.family, e.again); }
       else if (e.type === 'season') { if (hooks.onSeason) hooks.onSeason(e.season); }
       else if (e.type === 'year') {
@@ -914,7 +915,8 @@ ${flags.join(' · ') || '건강한 편이에요'}
       ${btn('interact', `${a.id}:treat`, done('treat') ? '간식 (오늘 함)' : `간식 주기 · ${D.ITEMS[item].name} ${Math.floor(state.inv[item] || 0)}`, { disabled: done('treat') || a.fat || (state.inv[item] || 0) < 1 })}
       ${btn('interact', `${a.id}:play`, done('play') ? '놀아 주기 (오늘 함)' : '놀아 주기', { disabled: done('play') || (state.inv.toys || 0) < 0.2 })}</div>
       ${SIM.isShaggy(a) ? (state.staff.some((x) => x.role === 'groomer') ? '<p class="note">미용사가 순서대로 미용해 줄 거예요. 털이 수북하면 입양 확률이 조금 낮아요.</p>'
-        : `<div class="btns">${btn('groomOut', a.id, `바깥 미용 맡기기 · ${won(D.GROOM.cost)}원`, { disabled: state.money < D.GROOM.cost })}</div><p class="note">미용사를 채용하면 직접 미용해 줘요.</p>`) : ''}`;
+        : (() => { const salon = Object.values(state.facilities).some((f) => f.type === 'salon' && !f.buildLeft), c = salon ? D.GROOM.salonCost : D.GROOM.cost;
+          return `<div class="btns">${btn('groomOut', a.id, `${salon ? '미용실에서 미용하기' : '바깥 미용 맡기기'} · ${won(c)}원`, { disabled: state.money < c })}</div><p class="note">미용사를 채용하면 직접 미용해 줘요.</p>`; })()) : ''}`;
     // 지금 상태 그림(v0.10): 아프거나 마음을 닫았으면 그 모습, 아니면 신뢰에 따라 앉기·꼬리 흔들기·발라당
     const P = G.POSE;
     if (P && P.hasCloseup(a.breed)) {

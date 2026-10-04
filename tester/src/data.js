@@ -115,6 +115,8 @@
     yard:     { name: '산책장',     lv: 2, days: 5,  cost: 600_000,   upkeep: 15_000, desc: '개들이 뛰놀며 훈련하는 곳. 사회성과 신뢰가 오르고 다이어트가 빨라져요. 활동량 많은 품종일수록 효과가 커요. 붙여 지으면 최대 8칸까지 한 마당이 돼요.' },
     adoption: { name: '입양 상담실', lv: 2, days: 7,  cost: 800_000,   upkeep: 30_000, desc: '입양 확률이 오릅니다.' },
     clinic:   { name: '진료실',     lv: 3, days: 12, size: 2, cost: 1_800_000, upkeep: 60_000, desc: '2×2칸. 수의사가 있으면 건강 회복이 빨라지고 진료를 안에서 해요.' },
+    // 미용실(v0.17, 사용자 요청): 유리벽이라 미용받는 아이가 밖에서도 보인다. 미용사 미용 확률 ×1.6, 미용사 없이 맡기는 미용 2만 원
+    salon:    { name: '미용실',     lv: 3, days: 6,  cost: 1_200_000, upkeep: 30_000, desc: '유리벽 미용실. 미용사가 더 자주 미용하고(×1.6), 미용사가 없어도 2만 원에 미용할 수 있어요. 미용받는 아이가 밖에서도 보여요.' },
     shop:     { name: '굿즈샵',     lv: 4, days: 8,  cost: 1_500_000, upkeep: 40_000, desc: '달마다 굿즈 매출이 납니다. 평판과 SNS 능력치가 클수록 잘 팔립니다.' },
     // v0.9 후반 시설(등급 6~10)
     edu:      { name: '교육관',     lv: 6, days: 10, cost: 4_000_000, upkeep: 80_000,  desc: '날마다 인식이 조금씩 오르고, 새 유행의 유기 물결이 15% 작아져요.' },
@@ -518,10 +520,11 @@
   // 유행 품종은 '반짝 인기' 때 간식을 많이 먹고 자라 살찐 채로 들어오는 경우가 많다
   // 미용(v0.12): 털이 긴 품종은 미용 뒤 shaggyDays일이 지나면 '털 수북'. 미용사가 출근한 날 가장 수북한 아이를
   // (미용 능력×레벨)/perPower 확률로 미용한다. 미용사가 없으면 아이 카드에서 바깥 미용(cost)을 맡긴다
+  // salonMult: 미용실이 있으면 미용사 미용 확률 배수, salonCost: 미용실에서 맡기는 미용비
   DATA.GROOM = {
     breeds: ['maltese', 'bichon', 'poodle', 'maltipoo', 'pomeranian', 'shihtzu', 'yorkie', 'schnauzer', 'samoyed', 'spitz', 'persian', 'angora', 'ragdoll', 'norwegian', 'mainecoon'],
     shaggyDays: 40, intakeShaggy: 0.6, perPower: 8, cost: 40_000,
-    adoptShaggy: 0.85, adoptFresh: 1.15, freshDays: 7, aware: 0.3,
+    adoptShaggy: 0.85, adoptFresh: 1.15, freshDays: 7, aware: 0.3, salonMult: 1.6, salonCost: 20_000,
   };
   // 폐업(v0.14): 자금 마이너스가 months달 이어지면 문을 닫는다(포기하지 않는 마음 경력은 RESOLVE.delay달 더)
   DATA.BANKRUPT = { months: 6, floor: 1_000_000 };   // 빚이 floor원을 넘는 달만 센다

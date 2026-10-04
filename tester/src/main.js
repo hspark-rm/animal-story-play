@@ -499,7 +499,7 @@
     sync(first) {
       if (!this.facLayer) return;   // 장면이 아직 만들어지기 전(그림 불러오는 중)
       for (const [id, img] of Object.entries(this.facLayer)) {
-        if (!state.facilities[id]) { if (img.label) img.label.destroy(); if (img.stars) img.stars.destroy(); img.destroy(); delete this.facLayer[id]; }
+        if (!state.facilities[id]) { if (img.label) img.label.destroy(); for (const o of img.upg || []) o.destroy(); img.destroy(); delete this.facLayer[id]; }
       }
       // 이어 지은 견사는 긴 건물 한 동으로, 이어 지은 산책장은 울타리 마당으로 그린다
       const groups = SIM.groups(state);
@@ -542,13 +542,14 @@
         const base = iso(f.x + n / 2, f.y + n / 2);
         let img = this.facLayer[f.id];
         // 자리·그림이 바뀐 건물(옮김, 이어 짓기)은 다시 세운다
-        if (img && img.sig !== sig && !(f.buildLeft === 0 && img.texture.key === 'iso-construction')) { if (img.label) img.label.destroy(); if (img.stars) { img.stars.destroy(); img.stars = null; } img.destroy(); img = null; delete this.facLayer[f.id]; }
+        if (img && img.sig !== sig && !(f.buildLeft === 0 && img.texture.key === 'iso-construction')) { if (img.label) img.label.destroy(); for (const o of img.upg || []) o.destroy(); img.destroy(); img = null; delete this.facLayer[f.id]; }
         if (!img) {
           img = this.add.image(front.x, front.y + 1, key).setOrigin(originX, 1);
           img.fallbackOrigin = originX;
           anchorImg(img, key);
           img.sig = sig;
           img.setVisible(!hidden);
+          if (f.type === 'salon') img.setAlpha(0.88);   // 유리 미용실: 안이 비쳐 보이게
           sizeFac(img);
           if (!first) { const s = img.scaleY; this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 220, ease: 'Back.Out' }); }
           this.facLayer[f.id] = img;
@@ -567,12 +568,16 @@
           this.floatText(base.x, base.y - 60, '완공!', '#e8743b');
         }
         img.box = box;
-        // 업그레이드 별: 건물 앞 꼭짓점 위
-        const lv = SIM.facLevel(f);
-        if (lv > 1 && !hidden && !def.decor) {
-          if (!img.stars) img.stars = this.add.text(0, 0, '', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '13px', color: '#ffd23f', stroke: '#5a3a1e', strokeThickness: 3 }).setOrigin(0.5, 1).setDepth(4990);
-          img.stars.setText('★'.repeat(lv - 1)).setPosition(front.x, front.y - 2);
-        } else if (img.stars) { img.stars.destroy(); img.stars = null; }
+        // 업그레이드 표시(v0.17): 별 대신 건물 앞이 단계마다 꾸며진다. 1단계 = 화분·꽃, 2단계 = 가로등·화단 더하기
+        const lv = SIM.facLevel(f), want = !hidden && !def.decor && !f.buildLeft ? lv : 1;
+        if (img.upgLv !== want) {
+          for (const o of img.upg || []) o.destroy();
+          img.upg = [];
+          img.upgLv = want;
+          const put = (key, x, y, h) => { if (!SPR.has(key)) return; const p = iso(x, y); const o = this.add.image(p.x, p.y, key).setOrigin(0.5, 1); fitHeight(o, h); img.upg.push(o); };
+          if (want >= 2) { put('deco-planter', f.x + n * 0.3, f.y + n + 0.12, 15); put('deco-flowers', f.x + n + 0.12, f.y + n * 0.3, 13); }
+          if (want >= 3) { put('deco-lamp', f.x + n + 0.1, f.y + n + 0.1, 30); put('deco-flowerbed', f.x + n * 0.7, f.y + n + 0.14, 11); put('deco-planter', f.x + n + 0.12, f.y + n * 0.7, 15); }
+        }
         if (f.buildLeft) {
           if (!img.label) img.label = this.add.text(base.x, base.y - 60 * n, '', { fontFamily: 'Do Hyeon, sans-serif', fontSize: '22px', color: '#3b2a20', stroke: '#ffffff', strokeThickness: 5 }).setOrigin(0.5).setDepth(5000);
           img.label.setText(`공사 ${f.buildLeft}일`);
@@ -660,6 +665,22 @@
       o.bodyH = this.personH(base);
       o.posed = true;
       return true;
+    }
+
+    // 미용실 장면(v0.17): 미용을 마친 아이가 유리 미용실 미용대 위에 잠시 앉아 있다가 반짝이며 나온다
+    groomShow(id) {
+      const spr = this.animalSpr[id];
+      const salon = Object.values(state.facilities).find((f) => f.type === 'salon' && !f.buildLeft);
+      const img = salon && this.facLayer[salon.id];
+      if (!spr || !spr.active || !img) return;
+      const p = iso(salon.x + 0.45, salon.y + 0.62);   // 미용대 근처 바닥
+      spr.path = []; spr.moving = false; spr.running = false;
+      spr.px = p.x; spr.py = p.y; spr.x = p.x; spr.y = p.y - 10;
+      spr.idlePose = 'sit'; spr.cheer = 0;
+      spr.hold = this.time.now + 4500;
+      spr.inSalon = this.time.now + 4500;   // 이 동안은 미용실 건물보다 앞(안에 있는 것처럼 유리 위에)
+      spr.setDepth(img.depth + 0.5);
+      this.time.delayedCall(4500, () => { if (spr.active) { spr.inSalon = 0; spr.cheer = this.time.now + 1800; this.emote(spr, 'sparkle', 2200); spr.path = null; } });
     }
 
     // 감정 말풍선(v0.11): 머리 위에 잠깐 뜬다. 상태가 핵심 정보라 그림보다 먼저 읽히게 한다
@@ -1037,7 +1058,7 @@
         for (const j of next[i]) if (!--indeg[j]) ready.push(j);
       }
       for (let i = 0; i < n; i++) if (!order.includes(i)) order.push(i);   // 순환이 있으면 앞 꼭짓점 순서로
-      order.forEach((i, r) => nodes[i].setDepth(100 + r * 4));
+      order.forEach((i, r) => { nodes[i].setDepth(100 + r * 4); (nodes[i].upg || []).forEach((o, k) => o.setDepth(100 + r * 4 + 1 + k * 0.1)); });   // 업그레이드 꾸밈은 건물 바로 앞
       this.sorted = nodes.map((o) => ({ o, box: o.box, b: o.getBounds() }));
     }
 
@@ -1192,7 +1213,7 @@
       for (const spr of Object.values(this.animalSpr)) {
         const home = state.facilities[spr.homeId];
         if (!home || !spr.active) continue;
-        if (spr.hold && spr.hold > this.time.now) { spr.moving = false; spr.setDepth(this.charDepth(spr.x, spr.py ?? spr.y)); continue; }
+        if (spr.hold && spr.hold > this.time.now) { spr.moving = false; if (!(spr.inSalon > this.time.now)) spr.setDepth(this.charDepth(spr.x, spr.py ?? spr.y)); this.placeEmote(spr); continue; }
         if (!spr.path) this.pickActivity(spr, home);
         const a = spr.animal, bb = a && D.BREEDS[a.breed];
         const pace = a && a.species === 'dog' ? (SIM.dogSize(a) === 'large' ? 1.15 : 0.9) * Math.min(1.3, bb.energy) : 0.7;
@@ -1373,6 +1394,7 @@
       if (kind === 'play') a.act = 'play';
     },
     onSeason(se) { if (scene() && scene().applySeason) scene().applySeason(se); },
+    onGroomed(id) { const sc = scene(); if (sc && sc.groomShow) sc.groomShow(id); },
     onEmote(id, key) { const sc = scene(); if (sc && sc.animalSpr && sc.animalSpr[id]) sc.emote(sc.animalSpr[id], key, 2200); },
     onModal() { UI.setSpeed(speed); },
     onBuildMode: setBuild,

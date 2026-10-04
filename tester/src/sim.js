@@ -964,19 +964,21 @@
     a.groomedDay = s.day;
     s.awareness += D.GROOM.aware;
     s.stats.groomed = (s.stats.groomed || 0) + 1;
-    story(s, a, `${by ? `${by}의 손에` : '바깥 미용실에서'} 털을 다듬고 새 모습이 됐다`);
+    story(s, a, `${by === '우리 미용실' ? '우리 미용실에서' : by ? `${by}의 손에` : '바깥 미용실에서'} 털을 다듬고 새 모습이 됐다`);
     pushFeed(s, `${a.name}의 미용 전·후 사진이 공유되고 있다`, 'good');
     if (ev) ev.push({ type: 'toast', text: `${a.name} 미용 완료! 한동안 입양 문의가 늘어요` });
+    if (ev) ev.push({ type: 'groomed', id: a.id });   // 화면: 미용실이 있으면 그 안에서 미용받는 모습
   }
   // 미용사가 없을 때 아이 카드에서 바깥 미용을 맡긴다
   SIM.groomOut = (s, id) => {
     const a = s.animals.find((x) => x.id === id);
     if (!a || !SIM.isShaggy(a)) return { ok: false };
-    if (s.money < D.GROOM.cost) return { ok: false, msg: '자금이 부족해요' };
-    expense(s, 'medical', D.GROOM.cost);
+    const cost = has(s, 'salon') ? D.GROOM.salonCost : D.GROOM.cost;   // 미용실이 있으면 우리 미용실에서
+    if (s.money < cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'medical', cost);
     const ev = [];
-    groomAnimal(s, a, ev, null);
-    return { ok: true, msg: `${a.name} 바깥 미용 완료 (${won(D.GROOM.cost)})`, events: ev };
+    groomAnimal(s, a, ev, has(s, 'salon') ? '우리 미용실' : null);
+    return { ok: true, msg: `${a.name} ${has(s, 'salon') ? '미용실' : '바깥'} 미용 완료 (${won(cost)})`, events: ev };
   };
   SIM.treat = (s, id, kind) => {
     const a = s.animals.find((x) => x.id === id);
@@ -1193,7 +1195,7 @@
     for (const st of s.staff) {
       if (st.role !== 'groomer' || !attending.has(st.id)) continue;
       const shaggy = s.animals.filter((a) => SIM.isShaggy(a) && !a.injured).sort((x, y) => y.furDays - x.furDays)[0];
-      if (shaggy && rand(s) < Math.min(1, (st.stats.groom || 0) * lvl(st) / D.GROOM.perPower)) groomAnimal(s, shaggy, ev, st.name);
+      if (shaggy && rand(s) < Math.min(1, (st.stats.groom || 0) * lvl(st) / D.GROOM.perPower * (has(s, 'salon') ? D.GROOM.salonMult : 1))) groomAnimal(s, shaggy, ev, st.name);
     }
     const n = Math.max(6, s.animals.length);
     const rainy = hasBuff(s, 'rain');
