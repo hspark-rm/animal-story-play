@@ -644,7 +644,7 @@
     }
     s.stats.adopted++; s.ledger.adopted++; s.ledger.stayDays += a.days;
     if (fee.fee) income(s, 'fee', fee.fee);
-    const gift = randInt(s, 10, 30) * 10_000;
+    const gift = Math.round(randInt(s, 10, 30) * D.ADOPT_GIFT_MULT) * 10_000;
     income(s, 'gift', gift);
     s.reputation += (a.closed ? 5 : 2) + (SIM.ageGroup(a).key === 'senior' ? D.AGE.seniorRep : 0);
     const willReturn = a.trust < 75 && rand(s) < fee.returnRate * 3 * (!a.neutered && a.ageDays >= D.MEDICAL.neuter.minDays ? 1.5 : 1) * (opts.bonded ? D.VISIT.bondReturn : 1);
@@ -856,6 +856,7 @@
     // 길에서 오는 아이들 + 지자체 위탁 의무 수용
     let pIn = 0.1 + (100 - s.awareness) / 100 * 0.18;
     if (phase === 'wave') pIn += 0.2 * s.trend.intensity;
+    pIn *= D.INTAKE_RATE;
     // 튜토리얼 중(첫 식구가 오기 전)에는 길에서 오는 아이가 없다
     const quiet = s.tutorial && s.tutorial.step < 4;
     if (!quiet && rand(s) < Math.min(0.85, pIn)) intakeAnimal(s, chooseBreed(s), false, ev);
@@ -949,7 +950,7 @@
     s.donors = Math.max(0, s.donors + gain - churn);
     s.stats.donorsPeak = Math.max(s.stats.donorsPeak, s.donors);
     s.awareness = clamp(s.awareness - 1, 10, 100);
-    s.npcRep = s.npcRep.map((r, i) => r + D.NPCS[i].size * (6 + rand(s) * 8));
+    s.npcRep = s.npcRep.map((r, i) => r + D.NPCS[i].size * (6 + rand(s) * 8) * D.NPC_REP_RATE);
 
     if (monthIdx % 12 === D.TREND.viralMonth - 1) startTrend(s, ev);
     const ph = trendPhase(s);
