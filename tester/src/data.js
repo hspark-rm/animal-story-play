@@ -102,7 +102,41 @@
     clinic:   { name: '진료실',     lv: 3, days: 12, size: 2, cost: 1_800_000, upkeep: 60_000, desc: '2×2칸. 수의사가 있으면 건강 회복이 빨라지고 진료를 안에서 해요.' },
     shop:     { name: '굿즈샵',     lv: 4, days: 8,  cost: 1_500_000, upkeep: 40_000, desc: '달마다 굿즈 매출이 납니다. 평판과 SNS 능력치가 클수록 잘 팔립니다.' },
     exotic:   { name: '특수동물 사육장', lv: 3, days: 8, cost: 1_500_000, upkeep: 40_000, cap: 3, species: 'exotic', desc: '라쿤·미어캣처럼 특별한 아이들이 지냅니다. 없으면 견사에서 불편하게 지내요.' },
+    // 본관(v0.7): 시작부터 부지 뒤쪽 가운데에 있다. 짓기 목록에 없고 철거할 수 없으며 옮길 수는 있다.
+    // 보호소 등급에 따라 모습이 3단계로 바뀌고(Lv1·Lv3·Lv5), 입양 상담을 기본으로 맡는다
+    main:     { name: '본관',       lv: 1, days: 0,  size: 2, cost: 0, upkeep: 30_000, fixed: true, desc: '보호소의 중심 건물. 입양 상담을 기본으로 맡아 입양 확률이 조금 오르고, 등급이 오르면 모습이 바뀌며 분위기가 좋아져요.' },
+    // 꾸밈(v0.7): 1칸, 바로 설치, 유지비 없음. mood = 분위기 점수, h = 화면 높이(월드 px)
+    planter:   { name: '화분',         decor: true, lv: 1, days: 0, cost: 30_000,  upkeep: 0, mood: 1, h: 38, sprite: 'deco-planter',   desc: '분위기 +1' },
+    hedge:     { name: '생울타리',     decor: true, lv: 1, days: 0, cost: 50_000,  upkeep: 0, mood: 1, h: 34, sprite: 'deco-hedge',     desc: '분위기 +1' },
+    wastebin:  { name: '배변 봉투함',  decor: true, lv: 1, days: 0, cost: 50_000,  upkeep: 0, mood: 1, h: 48, sprite: 'deco-wastebin',  desc: '분위기 +1' },
+    waterbowl: { name: '물그릇 쉼터',  decor: true, lv: 1, days: 0, cost: 50_000,  upkeep: 0, mood: 1, h: 22, sprite: 'deco-waterbowl', desc: '분위기 +1 · 개 건강 회복 +5%' },
+    flowerbed: { name: '화단',         decor: true, lv: 1, days: 0, cost: 60_000,  upkeep: 0, mood: 2, h: 30, sprite: 'deco-flowerbed', desc: '분위기 +2' },
+    bench:     { name: '벤치',         decor: true, lv: 1, days: 0, cost: 80_000,  upkeep: 0, mood: 2, h: 36, sprite: 'deco-parkbench', desc: '분위기 +2' },
+    shade:     { name: '그늘막',       decor: true, lv: 2, days: 0, cost: 120_000, upkeep: 0, mood: 2, h: 52, sprite: 'deco-shade',     desc: '분위기 +2 · 개 건강 회복 +5%' },
+    parasol:   { name: '파라솔 테이블', decor: true, lv: 2, days: 0, cost: 150_000, upkeep: 0, mood: 3, h: 52, sprite: 'deco-parasol',   desc: '분위기 +3' },
+    bigtree:   { name: '큰 나무',      decor: true, lv: 2, days: 0, cost: 100_000, upkeep: 0, mood: 3, h: 92, sprite: 'deco-bigtree',   desc: '분위기 +3' },
+    cattower:  { name: '실외 캣타워',  decor: true, lv: 2, days: 0, cost: 300_000, upkeep: 0, mood: 2, h: 60, sprite: 'deco-cattower',  desc: '분위기 +2 · 고양이 사회성 +10%' },
+    arch:      { name: '꽃 아치',      decor: true, lv: 3, days: 0, cost: 200_000, upkeep: 0, mood: 4, h: 64, sprite: 'deco-arch',      desc: '분위기 +4' },
   };
+
+  // 산책장 놀이기구(v0.7): 완공된 산책장 칸 위에만 놓는다(칸당 하나). 개는 그 위를 그대로 지나다닌다
+  DATA.YARD_ITEMS = {
+    aframe: { name: '어질리티 A프레임', cost: 250_000, mood: 1, h: 34, sprite: 'deco-aframe', train: 0.10, desc: '산책장 훈련 효과 +10%' },
+    tunnel: { name: '터널',             cost: 300_000, mood: 1, h: 30, sprite: 'deco-tunnel', social: 0.10, desc: '산책장 사회성 +10%' },
+    hurdle: { name: '허들',             cost: 150_000, mood: 1, h: 30, sprite: 'deco-hurdle', train: 0.05, desc: '산책장 훈련 효과 +5%' },
+    balls:  { name: '공 바구니',        cost: 100_000, mood: 1, h: 26, sprite: 'deco-balls',  toys: -0.10, desc: '장난감 소비 -10%' },
+  };
+
+  // 분위기: 꾸밈 점수 합(같은 꾸밈은 5개 넘으면 절반만). 20점마다 방문자 +5%·입양 +2%(상한 +25%·+10%)
+  DATA.MOOD = { step: 20, visit: 0.05, visitMax: 0.25, adopt: 0.02, adoptMax: 0.10, sameMax: 5, mainStage: [0, 5, 10] };
+  // 본관 단계: 보호소 등급이 이 값 이상이면 그 단계
+  DATA.MAIN_STAGE_LV = [1, 3, 5];
+  // 꾸밈 콤보: 붙어 있으면(산책장 놀이기구는 같은 마당 안에 있으면) 발동
+  DATA.DECOR_COMBOS = [
+    { id: 'garden', a: 'bench', b: 'flowerbed', name: '쉬어 가는 정원', desc: '벤치 옆 화단: 방문자가 입양을 원할 확률 +10%' },
+    { id: 'course', yard: ['aframe', 'tunnel', 'hurdle'], name: '어질리티 코스', desc: '한 마당에 A프레임·터널·허들: 훈련 효과 +20%' },
+    { id: 'summer', a: 'waterbowl', b: 'shade', name: '여름 쉼터', desc: '물그릇 쉼터 옆 그늘막: 개 건강 회복 +10%' },
+  ];
 
   DATA.COMBOS = [
     { id: 'walk',   a: 'yard',     b: 'kennel',   name: '산책 동선',   desc: '산책장 옆 견사: 개 사회성 +30%' },

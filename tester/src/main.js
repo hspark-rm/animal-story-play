@@ -64,12 +64,17 @@
     'iso-adoption': [119, 152], 'iso-storage': [119, 149], 'iso-shop': [110, 141], 'iso-construction': [108, 145],
     'iso-kennel-2x': [230, 233], 'iso-kennel-2y': [115, 225], 'iso-kennel-3x': [258, 242], 'iso-kennel-3y': [88, 252],
     'iso-cattery-2x': [282, 296], 'iso-cattery-3x': [313, 251], 'iso-cattery-2y': [80, 236], 'iso-cattery-3y': [57, 271],
+    // 본관은 정면에 가깝게 그려져 있어 폭 대신 앞 벽 길이로 크기를 맞춘다('left')
+    'iso-main-1': [265, 370, 'left'], 'iso-main-2': [320, 293, 'left'], 'iso-main-3': [305, 334, 'left'],
     'iso-bigkennel': [115, 165], 'iso-bigkennel-2x': [233, 263], 'iso-bigkennel-3x': [277, 260], 'iso-bigkennel-2y': [97, 248], 'iso-bigkennel-3y': [82, 257],
   };
   // 산책장 울타리 조각: [기준점 x 비율, 기준점 y 비율, 그림 속 변 가로 길이(px), 월드 가로 길이]
   // 기준점 = 조각 왼쪽 끝이 바닥 변과 만나는 점. 값은 tools/make_yard_parts.py 출력에서 옮김
   const YARD_FENCE = { 'yard-fence-x': [0, 30 / 74, 106, AX], 'yard-fence-y': [0, 80 / 85, 81, AY] };
   const facKey = (f) => {
+    const def = D.FACILITIES[f.type];
+    if (def.decor && SPR.has(def.sprite)) return def.sprite;
+    if (f.type === 'main' && SPR.has('iso-main-1')) return `iso-main-${SIM.mainStage(state)}`;
     const t = f.buildLeft ? 'construction' : f.type;
     return SPR.has(`iso-${t}`) ? `iso-${t}` : `tile-${t}`;
   };
@@ -97,6 +102,14 @@
       if (SPR.has('bg-canopy')) this.add.tileSprite(WORLD_W / 2, WORLD_H / 2, WORLD_W * 4, WORLD_H * 4, 'bg-canopy').setTileScale(0.5).setDepth(-20);
       this.drawGround();
       this.drawDecor();
+      // 구름: 지도 위쪽을 천천히 흘러간다(가리지 않게 반투명)
+      for (let i = 1; i <= 3; i++) {
+        if (!SPR.has(`bg-cloud-${i}`)) continue;
+        const c = this.add.image(Math.random() * WORLD_W, TOP - 80 + Math.random() * WORLD_H * 0.25, `bg-cloud-${i}`).setAlpha(0.88).setDepth(5400);
+        fitWidth(c, 150 + Math.random() * 60);
+        const drift = () => this.tweens.add({ targets: c, x: WORLD_W + 200, duration: (WORLD_W + 200 - c.x) * 90, onComplete: () => { c.x = -200; drift(); } });
+        drift();
+      }
       this.gridLines = this.add.graphics().setDepth(5);
       this.facLayer = {};
       this.animalSpr = {};
@@ -166,8 +179,39 @@
           f.lineStyle(4, 0xa8784a, 1).lineBetween(a.x, a.y - h, b.x, b.y - h);
         }
       };
-      fence(iso(0, ROWS - 1), iso(0, 0), ROWS - 1);
-      fence(iso(0, 0), iso(COLS, 0), COLS);
+      // 흰 피켓 울타리(v0.7): 부지 네 둘레. 앞쪽 가운데는 정문
+      this.fenceObjs = [];
+      if (!SPR.has('fence-white-x')) {
+        fence(iso(0, ROWS - 1), iso(0, 0), ROWS - 1);
+        fence(iso(0, 0), iso(COLS, 0), COLS);
+        return;
+      }
+      const piece = (key, at, box) => {
+        const [ox, oy, len, axisW] = YARD_FENCE[key.replace('fence-white', 'yard-fence')];
+        const img = originM(this.add.image(at.x, at.y, key), ox, oy).setScale(axisW / len).setDepth(1.6);
+        if (box) { img.box = box; this.fenceObjs.push(img); }
+      };
+      const gx = Math.floor(COLS / 2);
+      for (let x = 0; x < COLS; x++) piece('fence-white-x', iso(x, 0), null);                                   // 뒤 오른쪽
+      for (let y = 0; y < ROWS; y++) piece('fence-white-y', iso(0, y + 1), null);                               // 뒤 왼쪽
+      for (let x = 0; x < COLS; x++) if (x !== gx) piece('fence-white-x', iso(x, ROWS), { x0: x, y0: ROWS, x1: x + 1, y1: ROWS + 0.01 });   // 앞 왼쪽
+      for (let y = 0; y < ROWS; y++) piece('fence-white-y', iso(COLS, y + 1), { x0: COLS, y0: y, x1: COLS + 0.01, y1: y + 1 });            // 앞 오른쪽
+      if (SPR.has('deco-gate')) {
+        const p = iso(gx + 0.5, ROWS);
+        const gate = originM(this.add.image(p.x, p.y + 6, 'deco-gate'), 0.5, 1);
+        fitHeight(gate, 44);
+        gate.box = { x0: gx, y0: ROWS, x1: gx + 1, y1: ROWS + 0.01 };
+        this.fenceObjs.push(gate);
+      }
+      if (SPR.has('deco-signboard')) {
+        const p = iso(gx + 1.7, ROWS + 0.45);
+        const sign = originM(this.add.image(p.x, p.y, 'deco-signboard'), 0.5, 1);
+        fitHeight(sign, 54);
+        sign.box = { x0: gx + 1.5, y0: ROWS + 0.3, x1: gx + 1.9, y1: ROWS + 0.6 };
+        this.fenceObjs.push(sign);
+        // 간판 글자는 보호소 이름. 그림 위 판자 가운데에 겹친다
+        this.signText = this.add.text(p.x, p.y - 36, state.shelterName, { fontFamily: 'Do Hyeon, sans-serif', fontSize: '11px', color: '#fff6e0', stroke: '#5a3a1e', strokeThickness: 3 }).setOrigin(0.5).setDepth(5000);
+      }
     }
 
     /* 울타리 바깥 장식: 그림이 있을 때만 */
@@ -324,6 +368,7 @@
       }
       const yardBig = new Set(groups.yard.filter((g) => g.len > 1).flatMap((g) => g.ids));
       this.drawYards(groups.yard.filter((g) => g.len > 1));
+      this.drawYardItems();
       for (const f of Object.values(state.facilities)) {
         let key = facKey(f);
         let n = SIM.size(f.type);
@@ -340,8 +385,15 @@
           }
         }
         // 바닥보다 GAP만큼 안쪽에 세운다: 앞 꼭짓점을 안으로 당기고 폭을 줄인다
-        const front = iso(box.x1 - GAP, box.y1 - GAP);
+        const def = D.FACILITIES[f.type];
+        const front = def.decor ? iso(f.x + 0.5, f.y + 0.68) : iso(box.x1 - GAP, box.y1 - GAP);   // 꾸밈은 칸 가운데 조금 앞에 선다
         const width = (box.x1 - box.x0 - 2 * GAP) * AX + (box.y1 - box.y0 - 2 * GAP) * AY;
+        const sizeFac = (img) => {
+          if (def.decor && SPR.has(key)) { originM(img, 0.5, 1); fitHeight(img, def.h); return; }
+          fitWidth(img, width);
+          const a = ANCHOR[key];
+          if (a && a[2] === 'left') img.setScale((box.x1 - box.x0 - 2 * GAP) * AX / a[0]);
+        };
         const sig = `${key}|${f.x},${f.y}|${hidden}`;
         const base = iso(f.x + n / 2, f.y + n / 2);
         let img = this.facLayer[f.id];
@@ -353,7 +405,7 @@
           anchorImg(img, key);
           img.sig = sig;
           img.setVisible(!hidden);
-          fitWidth(img, width);
+          sizeFac(img);
           if (!first) { const s = img.scaleY; this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 220, ease: 'Back.Out' }); }
           this.facLayer[f.id] = img;
         } else if (img.texture.key !== key) {
@@ -365,7 +417,7 @@
           img.setTexture(key);
           anchorImg(img, key);
           img.sig = sig;
-          fitWidth(img, width);
+          sizeFac(img);
           const s = img.scaleY;
           this.tweens.add({ targets: img, scaleY: { from: s * 0.4, to: s }, duration: 260, ease: 'Back.Out' });
           this.floatText(base.x, base.y - 60, '완공!', '#e8743b');
@@ -540,7 +592,8 @@
       this.floatText(spr.x, spr.y - 40, '♥', '#e85a7a');
       const from = { x: spr.px ?? spr.x, y: spr.py ?? spr.y };
       spr.x = from.x; spr.y = from.y;
-      this.tweenPath(spr, this.route(from, tileCenter(COLS + 1, ROAD)), 6, () => spr.destroy());
+      const gate = tileCenter(Math.floor(COLS / 2), ROAD);
+      this.tweenPath(spr, [...this.route(from, gate), iso(COLS / 2 + 0.5, ROWS + 1.5), iso(COLS + 1.5, ROWS + 1.5)], 6, () => spr.destroy());
     }
 
     // 경유점을 차례로 트윈으로 걷는다(방문자, 떠나는 아이). msPerPx = 1px 가는 데 걸리는 시간
@@ -590,9 +643,10 @@
       });
       const bond = () => {
         // 교감: 쪼그려 앉아 쓰다듬고, 아이는 폴짝, 말풍선과 하트
+        const hugged = this.hug(people[0], people[0].base, spr, 2800);
         people.forEach((v, i) => {
           v.flipped = v.x > (spr.px ?? spr.x); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX);
-          this.tweens.add({ targets: v, scaleY: v.scaleY * 0.88, duration: 260, yoyo: true, repeat: 2, delay: i * 200 });
+          if (!(hugged && i === 0)) this.tweens.add({ targets: v, scaleY: v.scaleY * 0.88, duration: 260, yoyo: true, repeat: 2, delay: i * 200 });
           this.time.delayedCall(300 + i * 700, () => this.floatText(v.x, v.y - 58, D.VISIT.talk[Math.floor(Math.random() * D.VISIT.talk.length)], '#3b6fd0'));
         });
         if (spr.active) {
@@ -607,19 +661,65 @@
       };
     }
 
+    // 안아 주기(v0.7): 사람이 아이를 품에 안는다. 안은 모습 그림(<기본>-hug) 위 가슴 높이에 실제 아이 그림을 작게 겹친다.
+    // 기본 모습이 아니라 교감할 때만 쓴다. 큰 개(중·대형견 성견)는 안지 않고 쪼그려 쓰다듬는다
+    hug(person, base, spr, ms = 2600) {
+      const a = spr && spr.animal;
+      if (!a || !spr.active || !SPR.has(`${base}-hug`)) return false;
+      if (a.species === 'dog' && SIM.dogSize(a) === 'large' && SIM.ageGroup(a).key !== 'baby') return false;
+      const t = animalTex(a, 0);
+      person.hugging = true;
+      const sx = Math.abs(person.scaleX), sy = person.scaleY, h = person.displayHeight;
+      person.setTexture(`${base}-hug`);
+      person.setScale(sx, sy);
+      const held = this.add.image(person.x, person.y - h * 0.34, t.key).setOrigin(0.5, 0.6).setDepth(person.depth + 0.05);
+      fitHeight(held, a.species === 'cat' ? 17 : 19, t.wide);
+      const tint = SIM.coatTint(a);
+      if (tint) held.setTint(tint);
+      if (person.flipped) held.scaleX = -Math.abs(held.scaleX);
+      spr.setVisible(false);
+      spr.hold = this.time.now + ms + 200;
+      this.tweens.add({ targets: held, y: held.y - 2, duration: 300, yoyo: true, repeat: Math.floor(ms / 600) });
+      for (let i = 0; i < 2; i++) this.time.delayedCall(400 + i * 900, () => this.floatText(person.x, person.y - h - 6, '♥', '#e85a7a'));
+      this.time.delayedCall(ms, () => {
+        held.destroy();
+        if (spr.active) spr.setVisible(true);
+        person.hugging = false;
+        if (person.active) { person.setTexture(`${base}-0`); person.setScale(sx * (person.flipped ? -1 : 1), sy); }
+      });
+      return true;
+    }
+
     flipFrames() {
-      for (const v of this.visitors || []) if (v.active) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX); }
+      for (const v of this.visitors || []) if (v.active && !v.hugging) { v.setTexture(`${v.base}-${v.moving ? this.frame : 0}`); v.scaleX = (v.flipped ? -1 : 1) * Math.abs(v.scaleX); }
       for (const spr of Object.values(this.animalSpr)) if (spr.active && spr.animal) this.sizeAnimal(spr);
       for (const spr of Object.values(this.staffSpr)) {
+        if (spr.hugging) continue;
         const k = staffKey(spr.staff, spr.moving ? this.frame : 0);
         if (spr.texture.key !== k) { spr.setTexture(k); fitHeight(spr, 54); if (spr.flipped) spr.scaleX = -Math.abs(spr.scaleX); }
+      }
+    }
+
+    // 산책장 놀이기구: 산책장 칸 위에 그린다(v0.7). 개는 그 위를 그대로 지나다닌다
+    drawYardItems() {
+      for (const o of this.itemObjs || []) o.destroy();
+      this.itemObjs = [];
+      for (const it of SIM.yardItemList(state)) {
+        const d = D.YARD_ITEMS[it.type];
+        if (!SPR.has(d.sprite)) continue;
+        const p = iso(it.x + 0.5, it.y + 0.62);
+        const img = originM(this.add.image(p.x, p.y, d.sprite), 0.5, 1);
+        fitHeight(img, d.h);
+        img.box = { x0: it.x + 0.3, y0: it.y + 0.3, x1: it.x + 0.7, y1: it.y + 0.7 };
+        this.itemObjs.push(img);
       }
     }
 
     // 건물·앞 울타리의 앞뒤 순서: 바닥 상자로 위상 정렬한다(긴 건물도 맞게 가린다).
     // A가 B의 뒤 = A의 앞쪽 끝이 B의 뒤쪽 끝보다 뒤(x 또는 y). 서로 대각선이면 겹치지 않으므로 순서를 두지 않는다
     sortDepths() {
-      const nodes = [...Object.values(this.facLayer).filter((o) => o.visible), ...(this.yardObjs || []).filter((o) => o.box)];
+      const nodes = [...Object.values(this.facLayer).filter((o) => o.visible), ...(this.yardObjs || []).filter((o) => o.box),
+        ...(this.itemObjs || []), ...(this.fenceObjs || [])];
       const behind = (a, b) => (a.box.x1 <= b.box.x0 + 1e-6 || a.box.y1 <= b.box.y0 + 1e-6);
       const n = nodes.length, indeg = new Array(n).fill(0), next = nodes.map(() => []);
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
@@ -764,10 +864,26 @@
       }
       const facs = Object.values(state.facilities);
       for (const spr of Object.values(this.staffSpr)) {
-        if (!spr.path || (this.walk(spr, 1.1 * k) && Math.random() < 0.01)) {
-          const f = facs[Math.floor(Math.random() * facs.length)];
-          const n = f ? SIM.size(f.type) : 1;
-          this.go(spr, f ? iso(f.x + n * (0.2 + Math.random() * 0.6), Math.min(f.y + n + 0.3, ROAD + 0.5)) : tileCenter(COLS / 2, ROAD));
+        if (spr.hugging) continue;
+        const done = spr.path && this.walk(spr, 1.1 * k);
+        // 돌보러 간 아이 곁에 닿으면 안아 준다(안을 수 없는 큰 개는 하트만)
+        if (done && spr.careFor) {
+          const a = this.animalSpr[spr.careFor];
+          spr.careFor = null;
+          if (a && a.active && !this.hug(spr, staffKey(spr.staff, 0).replace(/-0$/, ''), a)) this.floatText(a.x, a.y - 36, '♥', '#e85a7a');
+          continue;
+        }
+        if (!spr.path || (done && Math.random() < 0.01)) {
+          const pets = Object.values(this.animalSpr).filter((x) => x.active && x.visible && !(x.hold > this.time.now));
+          if (pets.length && Math.random() < 0.35) {
+            const a = pets[Math.floor(Math.random() * pets.length)];
+            spr.careFor = a.animal.id;
+            this.go(spr, { x: (a.px ?? a.x) + 14, y: (a.py ?? a.y) + 4 });
+          } else {
+            const f = facs[Math.floor(Math.random() * facs.length)];
+            const n = f ? SIM.size(f.type) : 1;
+            this.go(spr, f ? iso(f.x + n * (0.2 + Math.random() * 0.6), Math.min(f.y + n + 0.3, ROAD + 0.5)) : tileCenter(COLS / 2, ROAD));
+          }
         }
       }
     }
@@ -778,7 +894,11 @@
       g.clear();
       if (!buildType && !moveId) return;
       for (let y = 0; y < ROAD; y++) for (let x = 0; x < COLS; x++) {
-        if (moveId ? !SIM.canMove(state, moveId, x, y) : !SIM.canPlace(state, buildType, x, y)) continue;
+        const yi = buildType && buildType.startsWith('yi:');
+        const okCell = moveId ? SIM.canMove(state, moveId, x, y)
+          : yi ? (() => { const f = SIM.facilityAt(state, x, y); return f && f.type === 'yard' && !f.buildLeft && !state.yardItems[`${x},${y}`]; })()
+            : SIM.canPlace(state, buildType, x, y);
+        if (!okCell) continue;
         const p = [iso(x + 0.08, y + 0.08), iso(x + 0.92, y + 0.08), iso(x + 0.92, y + 0.92), iso(x + 0.08, y + 0.92)];
         g.fillStyle(0xffffff, 0.22).fillPoints(p, true);
         g.lineStyle(2, 0xffffff, 0.8).strokePoints(p, true);
@@ -798,6 +918,16 @@
         setMove(null);
         this.sync(false);
         UI.save(state);
+        return;
+      }
+      if (buildType && buildType.startsWith('yi:')) {
+        const r = SIM.placeYardItem(state, buildType.slice(3), x, y);
+        UI.toast(r.msg);
+        if (!r.ok) return;
+        UI.handle(r.events);
+        this.sync(false);
+        UI.save(state);
+        if (state.money < D.YARD_ITEMS[buildType.slice(3)].cost) setBuild(null);
         return;
       }
       if (buildType) {
@@ -897,6 +1027,7 @@
   G.GAME = {
     state: () => state,
     phaser: () => game,
+    iso: (x, y) => iso(x, y),   // 점검용: 격자 → 월드 좌표
     advance(days) {
       for (let i = 0; i < days; i++) UI.handle(SIM.tick(state));
       UI.askPending();

@@ -75,13 +75,14 @@
       autoReport: false, reportDue: null, level: SIM.levelFor(C.reputation), autoMed: true,
       corporate: null, corporateOffered: false, subsidy: false, quotaLeft: 0,
       jobPosts: {}, volPost: null, applicants: [], hiredNamed: [],
-      album: [], pending: [], yearLog: [], ending: null,
+      album: [], pending: [], yearLog: [], ending: null, yardItems: {},
       ledger: newLedger(), report: null, prevReport: null,
       quarterFinance: false, fundraisedQ: 0, acctFails: 0, lowFunds: 0,
     };
     s.ledger.repStart = s.reputation;
     // 시작은 봉사자가 아니라 '나'
     s.staff.push({ id: s.nextId++, name: s.player.name, role: 'owner', gender: s.player.gender, level: 1, exp: 0, stats: { ...D.OWNER.stats[s.career] } });
+    placeMain(s);
     if (!s.tutorial) {
       if (wants(s, 'dog')) { placeFacility(s, 'bigkennel', 3, 4); placeFacility(s, 'kennel', 3, 5); }
       if (wants(s, 'cat')) placeFacility(s, 'cattery', 5, 5);
@@ -123,6 +124,8 @@
     if (!s.player) s.player = { name: '나', gender: 'f' };
     if (s.tutorial === undefined) s.tutorial = null;
     if (!s.yearLog) s.yearLog = [];
+    if (!s.yardItems) s.yardItems = {};
+    if (!Object.values(s.facilities).some((f) => f.type === 'main')) placeMain(s);
     if (s.ending === undefined) s.ending = null;
     s.stats.born = s.stats.born || 0; s.stats.placed = s.stats.placed || 0; s.stats.doorstep = s.stats.doorstep || 0;
     for (const a of s.animals) {
@@ -176,6 +179,77 @@
     s.facilities[id] = { id, type, x, y, buildLeft: days || 0 };
     for (const [cx, cy] of cellsOf(type, x, y)) s.grid[idx(s, cx, cy)] = id;
     return id;
+  }
+
+  // 본관: 부지 뒤쪽 가운데부터 2×2 빈자리를 찾아 세운다(예전 저장은 처음 불러올 때 자리를 찾는다)
+  function placeMain(s) {
+    const cx = Math.floor(s.gridW / 2) - 1;
+    const tries = [];
+    for (let y = 0; y < s.gridH - 2; y++) for (let d = 0; d < s.gridW; d++) for (const x of [cx - d, cx + d]) tries.push([x, y]);
+    const spot = tries.find(([x, y]) => SIM.canPlace(s, 'main', x, y));
+    if (spot) placeFacility(s, 'main', spot[0], spot[1]);
+  }
+  SIM.mainStage = (s) => D.MAIN_STAGE_LV.filter((lv) => s.level >= lv).length;   // 1~3
+
+  /* ---------- 꾸밈과 분위기 (v0.7) ---------- */
+  const decorList = (s, type) => facList(s).filter((f) => D.FACILITIES[f.type].decor && (!type || f.type === type));
+  SIM.yardItemList = (s) => Object.entries(s.yardItems || {}).map(([k, type]) => { const [x, y] = k.split(',').map(Number); return { x, y, type }; });
+  const hasYardItem = (s, type) => SIM.yardItemList(s).some((it) => it.type === type);
+  SIM.mood = (s) => {
+    const count = {};
+    let m = has(s, 'main') ? D.MOOD.mainStage[SIM.mainStage(s) - 1] : 0;
+    const add = (type, v) => { count[type] = (count[type] || 0) + 1; m += count[type] > D.MOOD.sameMax ? v / 2 : v; };
+    for (const f of decorList(s)) add(f.type, D.FACILITIES[f.type].mood);
+    for (const it of SIM.yardItemList(s)) add(it.type, D.YARD_ITEMS[it.type].mood);
+    return Math.round(m);
+  };
+  SIM.moodEffect = (s) => {
+    const steps = Math.floor(SIM.mood(s) / D.MOOD.step);
+    return { visit: Math.min(D.MOOD.visitMax, steps * D.MOOD.visit), adopt: Math.min(D.MOOD.adoptMax, steps * D.MOOD.adopt) };
+  };
+  // 꾸밈 콤보: 붙은 두 꾸밈, 또는 한 마당 안의 놀이기구 세트
+  SIM.decorCombos = (s) => {
+    const on = new Set();
+    for (const c of D.DECOR_COMBOS) {
+      if (c.yard) {
+        const items = SIM.yardItemList(s);
+        for (const g of SIM.groups(s).yard) {
+          const cells = new Set(g.cells.map(([x, y]) => `${x},${y}`));
+          const here = new Set(items.filter((it) => cells.has(`${it.x},${it.y}`)).map((it) => it.type));
+          if (c.yard.every((t) => here.has(t))) on.add(c.id);
+        }
+        continue;
+      }
+      for (const f of decorList(s, c.a)) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const g = SIM.facilityAt(s, f.x + dx, f.y + dy);
+        if (g && g.type === c.b && !g.buildLeft) on.add(c.id);
+      }
+    }
+    return on;
+  };
+  SIM.placeYardItem = (s, type, x, y) => {
+    const it = D.YARD_ITEMS[type];
+    const f = SIM.facilityAt(s, x, y);
+    if (!f || f.type !== 'yard' || f.buildLeft) return { ok: false, msg: '완공된 산책장 칸 위에만 놓을 수 있어요' };
+    if (s.yardItems[`${x},${y}`]) return { ok: false, msg: '그 칸에는 이미 놀이기구가 있어요' };
+    if (s.money < it.cost) return { ok: false, msg: '자금이 부족해요' };
+    expense(s, 'facility', it.cost);
+    s.yardItems[`${x},${y}`] = type;
+    const ev = [];
+    checkNewCombos(s, ev);
+    return { ok: true, msg: `${j(it.name, '을를')} 놓았어요`, events: ev };
+  };
+  SIM.removeYardItem = (s, key) => {
+    const type = s.yardItems[key];
+    if (!type) return { ok: false };
+    delete s.yardItems[key];
+    income(s, 'refund', D.YARD_ITEMS[type].cost * 0.3);
+    return { ok: true, msg: `${j(D.YARD_ITEMS[type].name, '을를')} 치웠어요` };
+  };
+  // 산책장이 옮겨지거나 철거되면 그 위 놀이기구도 치운다(30% 환급)
+  function clearYardItems(s, f) {
+    if (f.type !== 'yard') return;
+    for (const [cx, cy] of SIM.cellsOf(f)) if (s.yardItems[`${cx},${cy}`]) SIM.removeYardItem(s, `${cx},${cy}`);
   }
 
   /* ---------- 이어 짓기 묶음 ---------- */
@@ -343,6 +417,14 @@
   };
 
   function checkNewCombos(s, events) {
+    const ds = SIM.decorCombos(s);
+    for (const c of D.DECOR_COMBOS) {
+      if (ds.has(c.id) && !s.combosFound.includes(`d-${c.id}`)) {
+        s.combosFound.push(`d-${c.id}`);
+        s.reputation += 3;
+        events.push({ type: 'popup', title: '꾸밈 콤보 발견!', body: `${c.name}\n${c.desc}` });
+      }
+    }
     const cs = SIM.combos(s);
     for (const c of D.COMBOS) {
       if (cs[c.id].size && !s.combosFound.includes(c.id)) {
@@ -483,6 +565,7 @@
     for (const [k, it] of Object.entries(D.ITEMS)) {
       const p = it.per;
       need[k] = ((p.dog || 0) * (dogs * dogCut + exo * 0.6) + (p.fat || 0) * fat + (p.allergic || 0) * allergic + (p.cat || 0) * cats + (p.all || 0) * all + (p.sick || 0) * sick) * store;
+      if (k === 'toys' && hasYardItem(s, 'balls')) need[k] *= 1 + D.YARD_ITEMS.balls.toys;   // 공 바구니
     }
     return need;
   };
@@ -669,7 +752,7 @@
   function visitorTick(s, ev) {
     const V = D.VISIT;
     if (s.day < V.fromDay || s.day < (s.visitNext || 0) || s.pending.some((p) => p.kind === 'visit')) return;
-    const rate = V.base * (1 + s.awareness / 100 + s.reputation / 600) * (has(s, 'adoption') ? V.adoptionRoom : 1);
+    const rate = V.base * (1 + s.awareness / 100 + s.reputation / 600) * (has(s, 'adoption') ? V.adoptionRoom : 1) * (1 + SIM.moodEffect(s).visit);
     if (rand(s) >= rate) return;
     const pool = s.animals.filter((a) => a.species !== 'exotic' && !a.reservedBy && !a.closed && a.trust >= V.minTrust && !a.injured && !a.pregnant && !a.nursingLeft);
     if (!pool.length) return;
@@ -682,7 +765,7 @@
     a.trust = Math.min(100, a.trust + V.trustGain);
     a.social = Math.min(100, a.social + V.socialGain);
     ev.push({ type: 'visit', animal: a.id, family: fam.name });
-    if (rand(s) < V.wantRate * SIM.ageAdopt(a) * (fam.likes === SIM.ageGroup(a).key ? V.likeBoost : 1)) {
+    if (rand(s) < V.wantRate * SIM.ageAdopt(a) * (fam.likes === SIM.ageGroup(a).key ? V.likeBoost : 1) * (SIM.decorCombos(s).has('garden') ? 1.1 : 1)) {
       s.pending.push({ kind: 'visit', animal: a.id, family: fam.name, act, ready: SIM.isReady(a), issues: SIM.readyIssues(a) });
     } else {
       ev.push({ type: 'toast', text: `${fam.name} 방문: ${act}` });
@@ -718,6 +801,12 @@
     const n = Math.max(6, s.animals.length);
     const rainy = hasBuff(s, 'rain');
     const yardBig = 1 + D.MERGE.yardBonus * (Math.max(1, ...SIM.groups(s).yard.map((g) => g.len)) - 1);
+    // 꾸밈·놀이기구 효과(v0.7)
+    const dcs = SIM.decorCombos(s);
+    const dogDecorHeal = 1 + (decorList(s, 'waterbowl').length ? 0.05 : 0) + (decorList(s, 'shade').length ? 0.05 : 0) + (dcs.has('summer') ? 0.1 : 0);
+    const yardTrain = 1 + (hasYardItem(s, 'aframe') ? D.YARD_ITEMS.aframe.train : 0) + (hasYardItem(s, 'hurdle') ? D.YARD_ITEMS.hurdle.train : 0) + (dcs.has('course') ? 0.2 : 0);
+    const yardSocial = 1 + (hasYardItem(s, 'tunnel') ? D.YARD_ITEMS.tunnel.social : 0);
+    const catTower = decorList(s, 'cattower').length > 0;
 
     const births = [];
     for (const a of s.animals) {
@@ -729,20 +818,22 @@
       const fac = s.facilities[a.home];
       const ms = SIM.makeshift(s, a) ? D.EXOTIC.makeshift : 1;   // 전용이 아닌 집(특수동물, 소형견사의 대형견)
       const healBonus = (cs.care.has(fac.id) || cs.catvet.has(fac.id)) ? 1.3 : 1;
+      const decorHeal = a.species === 'dog' ? dogDecorHeal : 1;
       let starving = (a.species === 'dog' && short.dogFood) || (a.species === 'cat' && short.catFood);
       if (a.allergy && a.allergy.known) starving = !!short.hypoFood;
       if (a.allergy && !a.allergy.known && !starving && rand(s) < D.ALLERGY.flare) allergyFlare(s, a, ev);
       if (starving) a.health = clamp(a.health - 1, 0, 100);
-      else a.health = clamp(a.health + (0.4 + (heal * 4.8 / n) * healBonus + care * 0.5 / n) * ms, 0, a.injured ? 30 : 100);
+      else a.health = clamp(a.health + (0.4 + (heal * 4.8 / n) * healBonus + care * 0.5 / n) * ms * decorHeal, 0, a.injured ? 30 : 100);
       let tg = 0.25 + train * 3 / n + care * 0.6 / n;
       if (a.closed && !a.opened) tg *= 0.5 * (s.resolve ? D.RESOLVE.closedTrust : 1);
       if (short.towels) tg *= 0.6;
       if ((a.species === 'cat' && !short.churu) || (a.species === 'dog' && !a.fat && !short.dogchew)) tg *= 1.2;
       // 산책장 = 훈련장: 개는 산책장에서 훈련받으며 신뢰가 오른다(훈련사가 있으면 더)
-      if (a.species === 'dog' && has(s, 'yard')) tg += D.YARD.trainTrust * yardBig * (train > 0 ? D.YARD.trainerBoost : 1);
+      if (a.species === 'dog' && has(s, 'yard')) tg += D.YARD.trainTrust * yardBig * (train > 0 ? D.YARD.trainerBoost : 1) * yardTrain;
       a.trust = clamp(a.trust + tg * ms, 0, 100);
       let sg = 0.2 + train * 1.8 / n + care * 0.6 / n + (short.toys ? 0 : 0.15);
-      if (a.species === 'dog' && has(s, 'yard')) sg += 0.6 * b.energy * yardBig * (cs.walk.has(fac.id) ? 1.3 : 1);
+      if (a.species === 'dog' && has(s, 'yard')) sg += 0.6 * b.energy * yardBig * (cs.walk.has(fac.id) ? 1.3 : 1) * yardSocial;
+      if (a.species === 'cat' && catTower) sg *= 1.1;
       // 활동량이 많은 품종은 뛸 곳이 없으면 사회성이 덜 오른다
       else if (a.species === 'dog' && b.energy > 1) sg -= D.YARD.restless * (b.energy - 1);
       if (rainy) sg *= 0.5;
@@ -807,12 +898,15 @@
     }
 
     // 입양
+    const mood = SIM.moodEffect(s);
     const fee = D.ADOPT_FEES[s.feeLevel];
     const celebOn = activeCelebs(s).length > 0;
     for (const a of [...s.animals]) {
       if (!SIM.isReady(a) || a.reservedBy) continue;
       let p = 0.03 * D.BREEDS[a.breed].adopt * (1 + s.reputation / 400) * fee.adopt * (1 + groom * 0.04) * (a.fat ? D.DIET.adoptMult : 1) * SIM.ageAdopt(a);
       if (has(s, 'adoption')) p *= 1.5;
+      if (has(s, 'main')) p *= 1.15;                       // 본관 입양 상담
+      p *= 1 + mood.adopt;                                 // 분위기
       if (cs.meet.size) p *= 1.2;
       if (activeCampaign(s, 'adoptDay')) p *= 1.6;
       if (celebOn) p *= 1.3;
@@ -1223,11 +1317,13 @@
   /* ---------- 플레이어 행동 ---------- */
   SIM.build = (s, type, x, y) => {
     const f = D.FACILITIES[type];
+    if (f.fixed) return { ok: false, msg: '본관은 하나뿐이에요' };
     if (f.lv > s.level) return { ok: false, msg: `보호소 등급 Lv${f.lv}부터 지을 수 있어요` };
     if (!SIM.canPlace(s, type, x, y)) return { ok: false, msg: SIM.size(type) > 1 ? `${SIM.size(type)}×${SIM.size(type)}칸 빈자리가 필요해요 (누른 칸이 왼쪽 위)` : '이미 시설이 있어요' };
     if (s.money < f.cost) return { ok: false, msg: '자금이 부족해요' };
     expense(s, 'facility', f.cost);
     placeFacility(s, type, x, y, f.days);
+    if (!f.days) { const ev = []; checkNewCombos(s, ev); return { ok: true, msg: `${j(f.name, '을를')} 놓았어요`, events: ev }; }   // 꾸밈은 바로 설치
     return { ok: true, msg: `${j(f.name, '이가')} 공사를 시작했어요. ${f.days}일 뒤 완공`, events: [] };
   };
 
@@ -1249,6 +1345,7 @@
     if (s.money < cost) return { ok: false, msg: '자금이 부족해요' };
     if (!SIM.canMove(s, id, x, y)) return { ok: false, msg: SIM.size(f.type) > 1 ? `${SIM.size(f.type)}×${SIM.size(f.type)}칸 빈자리가 필요해요 (누른 칸이 왼쪽 위)` : '그 자리는 비어 있지 않아요' };
     expense(s, 'facility', cost);
+    clearYardItems(s, f);
     for (const [cx, cy] of SIM.cellsOf(f)) s.grid[idx(s, cx, cy)] = null;
     f.x = x; f.y = y;
     for (const [cx, cy] of SIM.cellsOf(f)) s.grid[idx(s, cx, cy)] = f.id;
@@ -1261,6 +1358,8 @@
     const f = s.facilities[id];
     if (!f) return { ok: false };
     if (s.animals.some((a) => a.home === id)) return { ok: false, msg: '아이들이 지내고 있어서 철거할 수 없어요' };
+    if (D.FACILITIES[f.type].fixed) return { ok: false, msg: '본관은 철거할 수 없어요. 옮길 수는 있어요' };
+    clearYardItems(s, f);
     for (const [cx, cy] of SIM.cellsOf(f)) s.grid[idx(s, cx, cy)] = null;
     delete s.facilities[id];
     income(s, 'refund', D.FACILITIES[f.type].cost * 0.3);

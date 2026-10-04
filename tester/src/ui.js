@@ -6,7 +6,7 @@
   const won = (v) => `${Math.round(v / 10000).toLocaleString()}만`;
   const SAVE_KEY = 'animal-story-save-v2';
 
-  const UI = { sheet: null, modalOpen: false, tab: { people: 'staff', manage: 'campaign' }, renaming: null };
+  const UI = { sheet: null, modalOpen: false, tab: { people: 'staff', manage: 'campaign', build: 'fac' }, renaming: null };
   const BUILD = G.BUILD || { flavor: 'dev', version: '0' };
   // 배포판은 테스트용 하나로 통합했다(2026-10-04). 보호소 이름 짓기와 튜토리얼은 항상 켠다
   UI.features = { shelterName: true, tutorial: true };
@@ -480,7 +480,27 @@ ${flags.join(' · ') || '건강한 편이에요'}
       const nextLand = D.LAND[state.land + 1];
       const land = `<div class="card"><b>부지 ${state.gridW}×${state.gridH - 1}칸</b>${nextLand ? `<span class="note">${nextLand.name}: ${nextLand.cols}×${nextLand.rows - 1}칸으로 넓히기 · ${won(nextLand.cost)}원 · Lv${nextLand.lv}부터</span><div class="btns">${btn('land', '', '땅 넓히기', { disabled: state.level < nextLand.lv || state.money < nextLand.cost })}</div>` : '<span class="note">가장 넓은 부지예요</span>'}</div>`;
       const head = land + `<div class="card"><b>보호소 등급 Lv${state.level} · ${lvl.name}</b><span class="note">${next ? `평판 ${next.rep}이 되면 Lv${next.lv} ${next.name}` : '최고 등급이에요'} · 지금 평판 ${Math.round(state.reputation)}</span></div>`;
-      const rows = Object.entries(D.FACILITIES).filter(([k]) => k !== 'exotic' || D.EXOTIC.enabled).map(([k, f]) => {
+      const tabBar = tabs('build', [['fac', '시설'], ['deco', '꾸미기']]);
+      if (UI.tab.build === 'deco') {
+        // 꾸미기(v0.7): 분위기 점수와 효과, 꾸밈 목록, 산책장 놀이기구, 꾸밈 콤보
+        const mood = SIM.mood(state), eff = SIM.moodEffect(state);
+        const top = `<div class="card"><b>분위기 ${mood}</b><span class="note">분위기 ${D.MOOD.step}점마다 방문자 +${D.MOOD.visit * 100}%, 입양 +${D.MOOD.adopt * 100}% (지금 방문자 +${Math.round(eff.visit * 100)}% · 입양 +${Math.round(eff.adopt * 100)}%). 같은 꾸밈은 ${D.MOOD.sameMax}개를 넘으면 점수가 절반이에요. 본관은 등급이 오르면 분위기 +${D.MOOD.mainStage[1]}·+${D.MOOD.mainStage[2]}.</span></div>`;
+        const decos = Object.entries(D.FACILITIES).filter(([, f]) => f.decor).map(([k, f]) => {
+          const locked = f.lv > state.level;
+          return `<div class="row" ${locked ? 'style="opacity:.6"' : ''}>${SPR.has(f.sprite) ? `<img alt="" class="ic" src="${SPR.path(f.sprite)}">` : ''}
+          <div class="main"><span class="name">${f.name}</span><span class="sub">${won(f.cost)}원 · ${f.desc}</span></div>
+          ${btn('build', k, locked ? `Lv${f.lv}부터` : '놓기', { disabled: locked || state.money < f.cost })}</div>`;
+        }).join('');
+        const items = Object.entries(D.YARD_ITEMS).map(([k, it]) => `<div class="row">${SPR.has(it.sprite) ? `<img alt="" class="ic" src="${SPR.path(it.sprite)}">` : ''}
+          <div class="main"><span class="name">${it.name}</span><span class="sub">${won(it.cost)}원 · 분위기 +${it.mood} · ${it.desc}</span></div>
+          ${btn('build', `yi:${k}`, '놓기', { disabled: state.money < it.cost || !Object.values(state.facilities).some((f) => f.type === 'yard' && !f.buildLeft) })}</div>`).join('');
+        const dc = D.DECOR_COMBOS.map((c) => (state.combosFound.includes(`d-${c.id}`)
+          ? `<div class="card"><b>${c.name}</b><span class="note">${c.desc}</span></div>` : '<div class="card"><b>???</b><span class="note">꾸밈을 어울리게 붙여 놓으면 발견돼요</span></div>')).join('');
+        return `${tabBar}${top}<h3 class="section-title">꾸밈 (빈칸에 놓기)</h3>${decos}
+          <h3 class="section-title">산책장 놀이기구 (산책장 칸 위에 놓기)</h3>${items}
+          <h3 class="section-title">꾸밈 콤보</h3>${dc}`;
+      }
+      const rows = Object.entries(D.FACILITIES).filter(([k, f]) => (k !== 'exotic' || D.EXOTIC.enabled) && !f.decor && !f.fixed).map(([k, f]) => {
         const locked = f.lv > state.level;
         return `<div class="row" ${locked ? 'style="opacity:.6"' : ''}>${icon('tile', k)}
           <div class="main"><span class="name">${f.name}</span><span class="sub">${won(f.cost)}원 · 공사 ${f.days}일 · 월 ${won(f.upkeep)}원</span><span class="sub">${f.desc}</span></div>
@@ -489,7 +509,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
       const combos = D.COMBOS.map((c) => (state.combosFound.includes(c.id)
         ? `<div class="card"><b>${c.name}</b><span class="note">${c.desc}</span></div>`
         : '<div class="card"><b>???</b><span class="note">어떤 시설을 붙여 지으면 발견돼요</span></div>')).join('');
-      return `${head}${rows}<p class="note">시설을 누르면 정보를 볼 수 있어요. 맨 아래 줄은 길이라 지을 수 없어요. 콤보는 공사가 끝나야 발견돼요.</p>
+      return `${tabBar}${head}${rows}<p class="note">시설을 누르면 정보를 볼 수 있어요. 맨 아래 줄은 길이라 지을 수 없어요. 콤보는 공사가 끝나야 발견돼요.</p>
         <h3 class="section-title">콤보 (${state.combosFound.length}/${D.COMBOS.length})</h3>${combos}`;
     },
     animals() {
@@ -656,7 +676,7 @@ ${flags.join(' · ') || '건강한 편이에요'}
 
   UI.buildHint = (type) => {
     $('build-hint').hidden = !type;
-    if (type) $('build-hint-text').textContent = `${j(D.FACILITIES[type].name, '을를')} 지을 칸을 누르세요`;
+    if (type) $('build-hint-text').textContent = type.startsWith('yi:') ? `${j(D.YARD_ITEMS[type.slice(3)].name, '을를')} 놓을 산책장 칸을 누르세요` : `${j(D.FACILITIES[type].name, '을를')} ${D.FACILITIES[type].decor ? '놓을' : '지을'} 칸을 누르세요`;
   };
 
   UI.showFacility = (f) => {
@@ -666,14 +686,17 @@ ${flags.join(' · ') || '건강한 편이에요'}
     $('sheet').hidden = false;
     $('sheet-title').textContent = def.name;
     $('sheet-body').innerHTML = `${f.buildLeft ? `<div class="card"><b>공사 중</b><span class="note">${f.buildLeft}일 뒤 완공돼요. 그동안은 쓸 수 없어요.</span></div>` : ''}<p class="note">${def.desc} 유지비 월 ${won(def.upkeep)}원</p>${here.map(animalRow).join('')}
+      ${f.type === 'yard' ? SIM.yardItemList(state).filter((it) => SIM.facilityAt(state, it.x, it.y) === f).map((it) => `<div class="row">${SPR.has(D.YARD_ITEMS[it.type].sprite) ? `<img alt="" class="ic" src="${SPR.path(D.YARD_ITEMS[it.type].sprite)}">` : ''}<div class="main"><span class="name">${D.YARD_ITEMS[it.type].name}</span><span class="sub">${D.YARD_ITEMS[it.type].desc}</span></div>${btn('removeItem', `${it.x},${it.y}`, '치우기 (30% 환급)', { ghost: true })}</div>`).join('') : ''}
+      ${f.type === 'main' ? `<p class="note">본관 ${SIM.mainStage(state)}단계 · 보호소 등급 Lv${D.MAIN_STAGE_LV[1]}·Lv${D.MAIN_STAGE_LV[2]}에 커져요</p>` : ''}
       <div class="btns">${btn('move', f.id, `옮기기 · ${won(SIM.moveCost(f))}원 (건설비 10%)`, { disabled: state.money < SIM.moveCost(f) })}
-      ${btn('demolish', f.id, '철거 (건설비 30% 환급)', { ghost: true })}</div>`;
+      ${def.fixed ? '' : btn('demolish', f.id, '철거 (건설비 30% 환급)', { ghost: true })}</div>`;
   };
 
   /* ---------- 연결 ---------- */
   const ACTIONS = {
     build: (a) => { UI.closeSheet(); hooks.onBuildMode(a); return null; },
     demolish: (a) => { const r = SIM.demolish(state, Number(a)); if (r.ok) UI.closeSheet(); return r; },
+    removeItem: (a) => { const r = SIM.removeYardItem(state, a); if (r.ok) { UI.closeSheet(); hooks.onChange(); } return r; },
     postJob: (a) => SIM.postJob(state, a),
     hire: (a) => { const [role, i] = a.split(':'); const r = SIM.hireCandidate(state, role, Number(i)); if (r.ok) UI.toast(`${r.name}님이 합류했어요`); return r; },
     fire: (a) => SIM.fire(state, Number(a)),
